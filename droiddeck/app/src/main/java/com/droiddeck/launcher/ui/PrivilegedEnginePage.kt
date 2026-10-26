@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.droiddeck.launcher.core.privileged.PrivilegedBridge
+import com.droiddeck.launcher.session.SessionPrefs
 import com.droiddeck.launcher.core.privileged.PrivilegedMode
 import com.droiddeck.launcher.core.privileged.PrivilegedStatus
 import kotlinx.coroutines.Dispatchers
@@ -151,6 +152,7 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
                         Icons.Outlined.Block, "Disable Phantom Limiter Now",
                         "Apply max_phantom_processes=2147483647 immediately",
                     ) {
+                        SessionPrefs.setPhantomDisableEnabled(ctx, true)
                         withContext(Dispatchers.IO) { PrivilegedBridge.disablePhantomProcesses(ctx) }
                         Toast.makeText(ctx, "Phantom process limit disabled", Toast.LENGTH_SHORT).show()
                     }
