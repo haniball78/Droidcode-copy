@@ -10,6 +10,9 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.droiddeck.launcher.session.SessionPrefs
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -28,6 +31,40 @@ import java.util.concurrent.atomic.AtomicInteger
  * 5. Zero-Polling Overhead & Anti-Flapping: Uses OS hardware thermal listeners and a gentle
  *    15-second heartbeat with a 30-second hysteresis hold to prevent rapid state bouncing.
  */
+internal class TierActionQueue {
+    private var executor: ExecutorService? = null
+
+    @Synchronized
+    fun start() {
+        if (executor == null || executor!!.isShutdown) {
+            executor = Executors.newSingleThreadExecutor { Thread(it, "governor-action") }
+        }
+    }
+
+    fun submit(guard: () -> Boolean, action: () -> Unit) {
+        val current = synchronized(this) { executor } ?: return
+        runCatching {
+            current.submit {
+                if (guard()) action()
+            }
+        }
+    }
+
+    @Synchronized
+    fun stopBarrier(timeoutMs: Long): Boolean {
+        val current = executor
+        executor = null
+        if (current == null) return true
+        current.shutdown()
+        return try {
+            current.awaitTermination(timeoutMs, TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
+    }
+}
+
 object DynamicAdaptiveGovernor {
     private const val TAG = "AdaptiveGovernor"
 
@@ -46,7 +83,7 @@ object DynamicAdaptiveGovernor {
     private val isMonitoring = AtomicBoolean(false)
     private var thermalListener: Any? = null
     private var monitorThread: Thread? = null
-    @Volatile private var actionThread: Thread? = null
+    private val actionQueue = TierActionQueue()
 
     // ── Public Lifecycle ───────────────────────────────────────────────────────
 
@@ -70,6 +107,7 @@ object DynamicAdaptiveGovernor {
         activeSessionGen = sessionGen
         activePid = pid
         running = true
+        actionQueue.start()
         currentTier = AdaptiveTier.BALANCED_COOL
         lastTransitionTime = 0L
 
@@ -123,11 +161,7 @@ object DynamicAdaptiveGovernor {
 
         monitorThread?.interrupt()
         monitorThread = null
-        val action = actionThread
-        actionThread = null
-        if (action != null && action != Thread.currentThread()) {
-            runCatching { action.join(4000) }
-        }
+        actionQueue.stopBarrier(4000)
 
         val pm = context.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
         if (Build.VERSION.SDK_INT >= 29 && pm != null && thermalListener != null) {
@@ -223,20 +257,22 @@ object DynamicAdaptiveGovernor {
             }
         }
 
-        actionThread = Thread({
-            try {
-                if (!running || (activeSessionGen != 0 && sessionGen != activeSessionGen)) return@Thread
-                if (!Tweaks.applyExistingKeyChange(context, "background_process_limit", limitCmd)) {
-                    Log.w(TAG, "applyTierAction refused: game mode journal has no background limit")
-                    return@Thread
+        actionQueue.submit(
+            guard = { running && (activeSessionGen == 0 || sessionGen == activeSessionGen) },
+            action = {
+                try {
+                    if (!Tweaks.applyExistingKeyChange(context, "background_process_limit", limitCmd)) {
+                        Log.w(TAG, "applyTierAction refused: game mode journal has no background limit")
+                        return@submit
+                    }
+                    if (script.isNotEmpty()) {
+                        PrivilegedBridge.executeChecked(script, PrivilegedBridge.DEFAULT_TIMEOUT_MS)
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "applyTierAction error: $limitCmd", t)
                 }
-                if (script.isNotEmpty()) {
-                    PrivilegedBridge.executeChecked(script, PrivilegedBridge.DEFAULT_TIMEOUT_MS)
-                }
-            } catch (t: Throwable) {
-                Log.w(TAG, "applyTierAction error: $limitCmd", t)
-            }
-        }, "governor-action").also { it.start() }
+            },
+        )
     }
 
     // ── Diagnostic & Telemetry ─────────────────────────────────────────────────
