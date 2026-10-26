@@ -25,47 +25,84 @@ enum class ExitState {
 }
 
 internal class ExitGate {
+    private val lock = Any()
+
     var state: ExitState = ExitState.IDLE
+        get() = synchronized(lock) { field }
         private set
     var reason: ExitReason? = null
+        get() = synchronized(lock) { field }
+        private set
+    var generation: Int = 0
+        get() = synchronized(lock) { field }
         private set
 
-    fun request(reason: ExitReason): Boolean {
-        if (state == ExitState.REQUESTED || state == ExitState.TEARDOWN || state == ExitState.RESTORING) return false
-        if (state == ExitState.RESTORE_FAILED) return false
-        state = ExitState.REQUESTED
-        this.reason = reason
-        return true
+    private fun generationMatches(generation: Int): Boolean {
+        return generation == 0 || this.generation == 0 || generation == this.generation
     }
 
-    fun beginTeardown() {
-        if (state == ExitState.IDLE) reason = ExitReason.GUEST_ENDED
-        state = ExitState.TEARDOWN
+    private fun claimGeneration(generation: Int) {
+        if (generation != 0) this.generation = generation
     }
 
-    fun beginRestore(): Boolean {
-        if (state == ExitState.DONE) return false
-        state = ExitState.RESTORING
-        return true
+    fun request(reason: ExitReason, generation: Int = 0): Boolean {
+        return synchronized(lock) {
+            if (state != ExitState.IDLE && state != ExitState.DONE) return@synchronized false
+            if (!generationMatches(generation)) return@synchronized false
+            claimGeneration(generation)
+            state = ExitState.REQUESTED
+            this.reason = reason
+            true
+        }
+    }
+
+    fun beginTeardown(generation: Int = 0) {
+        synchronized(lock) {
+            if (state == ExitState.TEARDOWN || state == ExitState.RESTORING) return
+            if (!generationMatches(generation)) return
+            claimGeneration(generation)
+            if (state == ExitState.IDLE) reason = ExitReason.GUEST_ENDED
+            state = ExitState.TEARDOWN
+        }
+    }
+
+    fun beginRestore(generation: Int = 0): Boolean {
+        return synchronized(lock) {
+            if (state != ExitState.TEARDOWN && state != ExitState.REQUESTED) return@synchronized false
+            if (!generationMatches(generation)) return@synchronized false
+            state = ExitState.RESTORING
+            true
+        }
     }
 
     fun restoreSucceeded() {
-        state = ExitState.DONE
+        synchronized(lock) {
+            if (state != ExitState.RESTORING) return
+            state = ExitState.DONE
+        }
     }
 
     fun restoreFailed() {
-        state = ExitState.RESTORE_FAILED
+        synchronized(lock) {
+            if (state != ExitState.RESTORING) return
+            state = ExitState.RESTORE_FAILED
+        }
     }
 
     fun retryRestore(): Boolean {
-        if (state != ExitState.RESTORE_FAILED) return false
-        state = ExitState.RESTORING
-        return true
+        return synchronized(lock) {
+            if (state != ExitState.RESTORE_FAILED) return@synchronized false
+            state = ExitState.RESTORING
+            true
+        }
     }
 
     fun reset() {
-        state = ExitState.IDLE
-        reason = null
+        synchronized(lock) {
+            state = ExitState.IDLE
+            reason = null
+            generation = 0
+        }
     }
 }
 
@@ -79,29 +116,29 @@ object SessionExit {
     fun isExiting(): Boolean = gate.state == ExitState.REQUESTED ||
         gate.state == ExitState.TEARDOWN || gate.state == ExitState.RESTORING
 
-    fun request(context: Context, reason: ExitReason): Boolean {
+    fun request(context: Context, reason: ExitReason, generation: Int = 0): Boolean {
         if (!SessionState.running) {
             SessionState.stopRequested = true
             return false
         }
-        if (!gate.request(reason)) return false
+        if (!gate.request(reason, generation)) return false
         mutableState.value = gate.state
         SessionService.stop(context)
         return true
     }
 
-    fun beginDirect(reason: ExitReason) {
-        gate.request(reason)
+    fun beginDirect(reason: ExitReason, generation: Int = 0) {
+        gate.request(reason, generation)
         mutableState.value = gate.state
     }
 
-    fun beginTeardown() {
-        gate.beginTeardown()
+    fun beginTeardown(generation: Int = 0) {
+        gate.beginTeardown(generation)
         mutableState.value = gate.state
     }
 
-    fun beginRestore(): Boolean {
-        val ok = gate.beginRestore()
+    fun beginRestore(generation: Int = 0): Boolean {
+        val ok = gate.beginRestore(generation)
         mutableState.value = gate.state
         return ok
     }
