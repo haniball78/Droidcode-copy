@@ -163,6 +163,25 @@ object AppFreezerEngine {
             return "freezer: aborted (session cancelled)"
         }
 
+        if (Tweaks.hasKey(context, "app-freezer") && !Tweaks.rollback(context)) {
+            return "freezer: aborted (previous journal rollback failed)"
+        }
+        val legacy = loadLegacyMarker(context)
+        if (legacy != null) {
+            val legacyScript = buildString {
+                append("cmd deviceidle unforce 2>/dev/null; ")
+                if (legacy.first.isNotEmpty()) {
+                    legacy.first.chunked(50).forEach { chunk ->
+                        append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
+                    }
+                }
+            }
+            if (execChecked(context, legacyScript).exitCode != 0) {
+                return "freezer: aborted (legacy leftover restore failed)"
+            }
+            deleteLegacyMarker(context)
+        }
+
         val batchScript = buildString {
             if (SessionPrefs.deepSystemDoze(context)) {
                 append("cmd deviceidle force-idle deep 2>/dev/null; ")
@@ -174,14 +193,30 @@ object AppFreezerEngine {
             }
         }
 
-        val existing = loadMarkerData(context)
-        val mergedTargets = (existing?.first.orEmpty() + uniqueTargets).distinct()
-        val mergedDoze = existing?.second == true || SessionPrefs.deepSystemDoze(context)
-        if (mergedTargets.isNotEmpty() || mergedDoze) {
-            saveMarkerData(context, mergedTargets, mergedDoze)
+        if (uniqueTargets.isNotEmpty() || SessionPrefs.deepSystemDoze(context)) {
+            val restoreScript = buildString {
+                append("cmd deviceidle unforce 2>/dev/null; ")
+                if (uniqueTargets.isNotEmpty()) {
+                    uniqueTargets.chunked(50).forEach { chunk ->
+                        append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
+                    }
+                }
+            }
+            val item = JournalItem(
+                key = "app-freezer",
+                original = null,
+                restoreCmd = restoreScript,
+                verifyCmd = null,
+                verifyMode = JournalVerifyMode.EXIT,
+                persistent = true,
+                generation = sessionGen,
+            )
+            if (!Tweaks.recordItem(context, item)) {
+                return "freezer: aborted (journal save failed)"
+            }
             suspendedPackages.clear()
-            suspendedPackages.addAll(mergedTargets)
-            results.add("suspended=${mergedTargets.size}")
+            suspendedPackages.addAll(uniqueTargets)
+            results.add("suspended=${uniqueTargets.size}")
         }
 
         if (SessionPrefs.deepSystemDoze(context)) {
@@ -210,35 +245,34 @@ object AppFreezerEngine {
     @Synchronized
     fun restore(context: Context, sessionGen: Int = 0): Boolean {
         activeGen.set(0)
-        if (!applied && !dozeForced && !hasMarker(context)) return true
-        val marker = loadMarkerData(context)
-        val targets = marker?.first?.ifEmpty { suspendedPackages } ?: suspendedPackages
-        val restoreDoze = dozeForced || marker?.second == true
+        if (!applied && !dozeForced && !Tweaks.recoveryNeeded(context) && !hasLegacyMarker(context)) return true
         Log.i(TAG, "app freezer: restoring suspended packages and system doze (gen=$sessionGen)...")
 
-        val restoreScript = buildString {
-            if (restoreDoze) {
+        val legacy = loadLegacyMarker(context)
+        if (legacy != null) {
+            val legacyScript = buildString {
                 append("cmd deviceidle unforce 2>/dev/null; ")
-            }
-            if (targets.isNotEmpty()) {
-                targets.chunked(50).forEach { chunk ->
-                    append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
+                if (legacy.first.isNotEmpty()) {
+                    legacy.first.chunked(50).forEach { chunk ->
+                        append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
+                    }
                 }
             }
-        }
-
-        if (restoreScript.isNotEmpty()) {
-            val result = execChecked(context, restoreScript)
-            if (result.exitCode != 0) {
-                Log.w(TAG, "app freezer: restore failed, marker kept for retry (exit=${result.exitCode})")
+            if (execChecked(context, legacyScript).exitCode != 0) {
+                Log.w(TAG, "app freezer: restore failed, legacy marker kept for retry")
                 return false
             }
+            deleteLegacyMarker(context)
+        }
+
+        if (!Tweaks.rollback(context)) {
+            Log.w(TAG, "app freezer: restore failed, journal kept for retry")
+            return false
         }
 
         applied = false
         dozeForced = false
         suspendedPackages.clear()
-        deleteMarker(context)
         Log.i(TAG, "app freezer: OFF (all apps restored cleanly)")
         return true
     }
@@ -248,25 +282,30 @@ object AppFreezerEngine {
      * an earlier abrupt termination or device reboot are safely unsuspended.
      */
     fun clearLeftover(context: Context) {
-        if (!hasMarker(context)) return
+        if (!Tweaks.recoveryNeeded(context) && !hasLegacyMarker(context)) return
         Thread({
             try {
                 Log.w(TAG, "clearLeftover: found leftover suspended packages, restoring...")
-                val (targets, _) = loadMarkerData(context) ?: return@Thread
-                val script = buildString {
-                    append("cmd deviceidle unforce 2>/dev/null; ")
-                    if (targets.isNotEmpty()) {
-                        targets.chunked(50).forEach { chunk ->
-                            append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
+                val legacy = loadLegacyMarker(context)
+                if (legacy != null) {
+                    val script = buildString {
+                        append("cmd deviceidle unforce 2>/dev/null; ")
+                        if (legacy.first.isNotEmpty()) {
+                            legacy.first.chunked(50).forEach { chunk ->
+                                append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
+                            }
                         }
                     }
+                    if (execChecked(context, script).exitCode != 0) {
+                        Log.w(TAG, "clearLeftover: restore failed, legacy marker kept for retry")
+                        return@Thread
+                    }
+                    deleteLegacyMarker(context)
                 }
-                val result = execChecked(context, script)
-                if (result.exitCode != 0) {
-                    Log.w(TAG, "clearLeftover: restore failed, marker kept for retry")
+                if (!Tweaks.rollback(context)) {
+                    Log.w(TAG, "clearLeftover: restore failed, journal kept for retry")
                     return@Thread
                 }
-                deleteMarker(context)
                 Log.i(TAG, "clearLeftover: all leftover packages unsuspended successfully")
             } catch (t: Throwable) {
                 Log.e(TAG, "clearLeftover error", t)
@@ -323,22 +362,16 @@ object AppFreezerEngine {
         return set
     }
 
-    private fun saveMarkerData(context: Context, list: List<String>, dozeForced: Boolean) {
-        try {
-            File(context.filesDir, MARKER_FILE).writeText(SafetyChecks.encodeFreezerMarker(list, dozeForced))
-        } catch (_: Exception) {}
-    }
-
-    private fun loadMarkerData(context: Context): Pair<List<String>, Boolean>? {
+    private fun loadLegacyMarker(context: Context): Pair<List<String>, Boolean>? {
         return try {
             val f = File(context.filesDir, MARKER_FILE)
             if (f.exists()) SafetyChecks.decodeFreezerMarker(f.readText()) else null
         } catch (_: Exception) { null }
     }
 
-    private fun hasMarker(context: Context): Boolean = File(context.filesDir, MARKER_FILE).exists()
+    private fun hasLegacyMarker(context: Context): Boolean = File(context.filesDir, MARKER_FILE).exists()
 
-    private fun deleteMarker(context: Context) {
+    private fun deleteLegacyMarker(context: Context) {
         try { File(context.filesDir, MARKER_FILE).delete() } catch (_: Exception) {}
     }
 
