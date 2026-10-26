@@ -50,10 +50,6 @@ object GameModeEngine {
     // Binary: 11111100 = 0xfc
     private const val TURBO_CORES_MASK = "fc"
 
-    @Volatile private var savedBgProcessLimit: String? = null
-    @Volatile private var savedSemEnhanced: String? = null
-    @Volatile private var savedRestrictedPerf: String? = null
-    @Volatile private var savedAdaptiveBattery: String? = null
     @Volatile private var applied = false
     @Volatile private var aggressiveActive = false
 
@@ -73,25 +69,28 @@ object GameModeEngine {
         aggressiveActive = aggressive
         val pkg = context.packageName
 
-        val existingMarker = loadMarkerData(context)
-        if (existingMarker != null) {
-            savedBgProcessLimit = existingMarker.backgroundLimit
-            savedSemEnhanced = existingMarker.semEnhanced
-            savedRestrictedPerf = existingMarker.restrictedPerf
-            savedAdaptiveBattery = existingMarker.adaptiveBattery
-        } else {
-            val curBg = SafetyChecks.parseBackgroundLimit(exec(context, "settings get global background_process_limit"))
-            savedBgProcessLimit = curBg.takeIf { SafetyChecks.isCleanBackgroundLimit(it) }
-
-            if (aggressive) {
-                savedSemEnhanced = SafetyChecks.parseBackgroundLimit(exec(context, "settings get global sem_enhanced_cpu_responsiveness"))
-                savedRestrictedPerf = SafetyChecks.parseBackgroundLimit(exec(context, "settings get global restricted_device_performance"))
-                savedAdaptiveBattery = SafetyChecks.parseBackgroundLimit(exec(context, "settings get global adaptive_battery_management_enabled"))
+        val items = mutableListOf<JournalItem>()
+        if (!Tweaks.hasKey(context, "background_process_limit")) {
+            val resolvedBg = Preflight.resolveBackgroundLimitOriginal(exec(context, "settings get global background_process_limit"))
+            if (resolvedBg.leftoverDetected) {
+                Log.w(TAG, "preflight: leftover background limit detected with empty journal, recording null original")
             }
-            saveMarkerData(
-                context,
-                GameModeMarker(savedBgProcessLimit, savedSemEnhanced, savedRestrictedPerf, savedAdaptiveBattery),
-            )
+            items.add(settingItem("background_process_limit", resolvedBg.original, sessionGen))
+        }
+        if (aggressive) {
+            if (!Tweaks.hasKey(context, "sem_enhanced_cpu_responsiveness")) {
+                items.add(settingItem("sem_enhanced_cpu_responsiveness", Preflight.resolveSettingOriginal(exec(context, "settings get global sem_enhanced_cpu_responsiveness")), sessionGen))
+            }
+            if (!Tweaks.hasKey(context, "restricted_device_performance")) {
+                items.add(settingItem("restricted_device_performance", Preflight.resolveSettingOriginal(exec(context, "settings get global restricted_device_performance")), sessionGen))
+            }
+            if (!Tweaks.hasKey(context, "adaptive_battery_management_enabled")) {
+                items.add(settingItem("adaptive_battery_management_enabled", Preflight.resolveSettingOriginal(exec(context, "settings get global adaptive_battery_management_enabled")), sessionGen))
+            }
+        }
+        if (!Tweaks.recordItems(context, items)) {
+            Log.w(TAG, "apply aborted: journal save failed")
+            return "game mode: aborted (journal save failed)"
         }
 
         if (sessionGen != 0 && activeGen.get() != sessionGen) {
@@ -170,55 +169,28 @@ object GameModeEngine {
     @Synchronized
     fun restore(context: Context, sessionGen: Int = 0): Boolean {
         activeGen.set(0)
-        if (!applied && !hasMarker(context)) return true
-        val marker = loadMarkerData(context)
-        val effectiveBg = savedBgProcessLimit ?: marker?.backgroundLimit
-        val effectiveSem = savedSemEnhanced ?: marker?.semEnhanced
-        val effectiveRestricted = savedRestrictedPerf ?: marker?.restrictedPerf
-        val effectiveAdaptive = savedAdaptiveBattery ?: marker?.adaptiveBattery
-        val wasAggressive = aggressiveActive || marker?.semEnhanced != null ||
-            marker?.restrictedPerf != null || marker?.adaptiveBattery != null
+        if (!applied && !Tweaks.recoveryNeeded(context) && !hasLegacyMarker(context)) return true
+        val wasAggressive = aggressiveActive
         applied = false
         Log.i(TAG, "game mode: restoring system settings (gen=$sessionGen)...")
 
-        val pkg = context.packageName
-        val restoreScript = buildString {
-            if (effectiveBg != null && SafetyChecks.isCleanBackgroundLimit(effectiveBg)) {
-                append("settings put global background_process_limit $effectiveBg 2>/dev/null; ")
-            } else {
-                append("settings delete global background_process_limit 2>/dev/null; ")
-            }
-            append("cmd game reset $pkg 2>/dev/null || cmd game mode 1 $pkg 2>/dev/null; ")
-            append("cmd power set-fixed-performance-mode-enabled false 2>/dev/null; ")
-
-            if (wasAggressive) {
-                if (effectiveSem != null) append("settings put global sem_enhanced_cpu_responsiveness $effectiveSem 2>/dev/null; ")
-                else append("settings delete global sem_enhanced_cpu_responsiveness 2>/dev/null; ")
-                if (effectiveRestricted != null) append("settings put global restricted_device_performance $effectiveRestricted 2>/dev/null; ")
-                else append("settings delete global restricted_device_performance 2>/dev/null; ")
-                if (effectiveAdaptive != null) append("settings put global adaptive_battery_management_enabled $effectiveAdaptive 2>/dev/null; ")
-                else append("settings delete global adaptive_battery_management_enabled 2>/dev/null; ")
+        val legacy = loadLegacyMarker(context)
+        if (legacy != null) {
+            if (!Tweaks.recordItems(context, legacyItems(legacy, sessionGen))) {
+                Log.w(TAG, "game mode: restore not verified, journal kept for retry (legacy migration failed)")
+                aggressiveActive = wasAggressive
+                return false
             }
         }
-
-        val result = execChecked(context, restoreScript)
-        val actualBg = SafetyChecks.parseBackgroundLimit(exec(context, "settings get global background_process_limit"))
-        val expectedBg = effectiveBg.takeIf { SafetyChecks.isCleanBackgroundLimit(it) }
-        if (!SafetyChecks.restoreVerified(result.exitCode, expectedBg, actualBg)) {
-            Log.w(TAG, "game mode: restore not verified, marker kept for retry (exit=${result.exitCode}, expected=$expectedBg, actual=$actualBg)")
-            savedBgProcessLimit = effectiveBg
-            savedSemEnhanced = effectiveSem
-            savedRestrictedPerf = effectiveRestricted
-            savedAdaptiveBattery = effectiveAdaptive
+        val rolledBack = Tweaks.rollback(context)
+        val pkg = context.packageName
+        exec(context, "cmd game reset $pkg 2>/dev/null || cmd game mode 1 $pkg 2>/dev/null; cmd power set-fixed-performance-mode-enabled false 2>/dev/null; ")
+        if (!rolledBack) {
+            Log.w(TAG, "game mode: restore not verified, journal kept for retry")
             aggressiveActive = wasAggressive
             return false
         }
-        deleteMarker(context)
-
-        savedBgProcessLimit = null
-        savedSemEnhanced = null
-        savedRestrictedPerf = null
-        savedAdaptiveBattery = null
+        if (legacy != null) deleteLegacyMarker(context)
         aggressiveActive = false
 
         Log.i(TAG, "game mode: OFF (all settings restored cleanly)")
@@ -230,37 +202,23 @@ object GameModeEngine {
      * restored to defaults on next app startup.
      */
     fun clearLeftover(context: Context) {
-        if (!hasMarker(context)) return
+        if (!Tweaks.recoveryNeeded(context) && !hasLegacyMarker(context)) return
         val appContext = context.applicationContext
         Thread({
             try {
                 Log.w(TAG, "clearLeftover: found leftover game mode state, restoring defaults...")
-                val marker = loadMarkerData(appContext) ?: return@Thread
-                val pkg = appContext.packageName
-                val script = buildString {
-                    val savedBg = marker.backgroundLimit
-                    if (savedBg != null && SafetyChecks.isCleanBackgroundLimit(savedBg)) {
-                        append("settings put global background_process_limit $savedBg 2>/dev/null; ")
-                    } else {
-                        append("settings delete global background_process_limit 2>/dev/null; ")
-                    }
-                    append("cmd game reset $pkg 2>/dev/null || cmd game mode 1 $pkg 2>/dev/null; ")
-                    if (marker.semEnhanced != null) append("settings put global sem_enhanced_cpu_responsiveness ${marker.semEnhanced} 2>/dev/null; ")
-                    else append("settings delete global sem_enhanced_cpu_responsiveness 2>/dev/null; ")
-                    if (marker.restrictedPerf != null) append("settings put global restricted_device_performance ${marker.restrictedPerf} 2>/dev/null; ")
-                    else append("settings delete global restricted_device_performance 2>/dev/null; ")
-                    if (marker.adaptiveBattery != null) append("settings put global adaptive_battery_management_enabled ${marker.adaptiveBattery} 2>/dev/null; ")
-                    else append("settings delete global adaptive_battery_management_enabled 2>/dev/null; ")
-                    append("cmd power set-fixed-performance-mode-enabled false 2>/dev/null; ")
-                }
-                val result = execChecked(appContext, script)
-                val actualBg = SafetyChecks.parseBackgroundLimit(exec(appContext, "settings get global background_process_limit"))
-                val expectedBg = marker.backgroundLimit.takeIf { SafetyChecks.isCleanBackgroundLimit(it) }
-                if (!SafetyChecks.restoreVerified(result.exitCode, expectedBg, actualBg)) {
-                    Log.w(TAG, "clearLeftover: restore not verified, marker kept for retry")
+                val legacy = loadLegacyMarker(appContext)
+                if (legacy != null && !Tweaks.recordItems(appContext, legacyItems(legacy, 0))) {
+                    Log.w(TAG, "clearLeftover: restore not verified, journal kept for retry")
                     return@Thread
                 }
-                deleteMarker(appContext)
+                if (!Tweaks.rollback(appContext)) {
+                    Log.w(TAG, "clearLeftover: restore not verified, journal kept for retry")
+                    return@Thread
+                }
+                val pkg = appContext.packageName
+                exec(appContext, "cmd game reset $pkg 2>/dev/null || cmd game mode 1 $pkg 2>/dev/null; cmd power set-fixed-performance-mode-enabled false 2>/dev/null; ")
+                if (legacy != null) deleteLegacyMarker(appContext)
                 Log.i(TAG, "clearLeftover: game mode leftover settings cleaned successfully")
             } catch (t: Throwable) {
                 Log.e(TAG, "clearLeftover error", t)
@@ -313,20 +271,41 @@ object GameModeEngine {
 
     // ── Internal Helpers ───────────────────────────────────────────────────────
 
-    private fun saveMarkerData(context: Context, marker: GameModeMarker) {
-        try { File(context.filesDir, MARKER_FILE).writeText(SafetyChecks.encodeGameModeMarker(marker)) } catch (_: Exception) {}
+    private fun settingItem(key: String, original: String?, generation: Int): JournalItem {
+        val restore = if (original == null) {
+            "settings delete global $key 2>/dev/null"
+        } else {
+            "settings put global $key $original 2>/dev/null"
+        }
+        return JournalItem(
+            key = key,
+            original = original,
+            restoreCmd = restore,
+            verifyCmd = "settings get global $key",
+            verifyMode = JournalVerifyMode.VALUE,
+            persistent = true,
+            generation = generation,
+        )
     }
 
-    private fun loadMarkerData(context: Context): GameModeMarker? {
+    private fun legacyItems(marker: GameModeMarker, generation: Int): List<JournalItem> {
+        val items = mutableListOf(settingItem("background_process_limit", marker.backgroundLimit.takeIf { SafetyChecks.isCleanBackgroundLimit(it) }, generation))
+        if (marker.semEnhanced != null) items.add(settingItem("sem_enhanced_cpu_responsiveness", marker.semEnhanced, generation))
+        if (marker.restrictedPerf != null) items.add(settingItem("restricted_device_performance", marker.restrictedPerf, generation))
+        if (marker.adaptiveBattery != null) items.add(settingItem("adaptive_battery_management_enabled", marker.adaptiveBattery, generation))
+        return items
+    }
+
+    private fun loadLegacyMarker(context: Context): GameModeMarker? {
         return try {
             val f = File(context.filesDir, MARKER_FILE)
             if (f.exists()) SafetyChecks.decodeGameModeMarker(f.readText()) else null
         } catch (_: Exception) { null }
     }
 
-    private fun hasMarker(context: Context): Boolean = File(context.filesDir, MARKER_FILE).exists()
+    private fun hasLegacyMarker(context: Context): Boolean = File(context.filesDir, MARKER_FILE).exists()
 
-    private fun deleteMarker(context: Context) {
+    private fun deleteLegacyMarker(context: Context) {
         try { File(context.filesDir, MARKER_FILE).delete() } catch (_: Exception) {}
     }
 
@@ -340,13 +319,4 @@ object GameModeEngine {
         }
     }
 
-    private fun execChecked(context: Context, cmd: String): PrivilegedResult {
-        return try {
-            PrivilegedBridge.ensureSessionToken(context)
-            PrivilegedBridge.executeChecked(cmd, PrivilegedBridge.DEFAULT_TIMEOUT_MS)
-        } catch (t: Throwable) {
-            Log.w(TAG, "execChecked error: $cmd", t)
-            PrivilegedResult(-1, "", PrivilegedMode.NONE)
-        }
-    }
 }
