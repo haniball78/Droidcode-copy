@@ -5,11 +5,18 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 
 internal object AtomicStateFile {
+    @Volatile var lastBakRestoreFailed: Boolean = false
+        private set
+
+    @Volatile var lastWriteBackFailed: Boolean = false
+        private set
+
     fun tmpFile(file: File): File = File(file.parentFile, "${file.name}.tmp")
 
     fun bakFile(file: File): File = File(file.parentFile, "${file.name}.bak")
 
-    fun save(file: File, text: String): Boolean {
+    fun save(file: File, text: String, rename: (File, File) -> Boolean = { src, dst -> src.renameTo(dst) }): Boolean {
+        lastBakRestoreFailed = false
         return try {
             val parent = file.parentFile ?: return false
             if (!parent.exists()) parent.mkdirs()
@@ -19,9 +26,12 @@ internal object AtomicStateFile {
                 stream.channel.force(true)
             }
             val bak = bakFile(file)
-            if (file.exists() && !file.renameTo(bak)) return false
-            if (!tmp.renameTo(file)) {
-                if (bak.exists()) runCatching { bak.renameTo(file) }
+            if (file.exists() && !rename(file, bak)) return false
+            if (!rename(tmp, file)) {
+                if (bak.exists()) {
+                    val restored = runCatching { rename(bak, file) }.getOrDefault(false)
+                    if (!restored) lastBakRestoreFailed = true
+                }
                 return false
             }
             syncDirectory(parent)
@@ -41,6 +51,7 @@ internal object AtomicStateFile {
     }
 
     fun <T> readRecovered(file: File, decode: (String) -> T?): T? {
+        lastWriteBackFailed = false
         val parent = file.parentFile ?: return null
         if (!file.exists() && !bakFile(file).exists() && !tmpFile(file).exists()) return null
         val candidates = listOf(file, bakFile(file), tmpFile(file))
@@ -57,7 +68,10 @@ internal object AtomicStateFile {
                 null
             }
             if (decoded != null) {
-                if (candidate != file) runCatching { save(file, text) }
+                if (candidate != file) {
+                    val written = runCatching { save(file, text) }.getOrDefault(false)
+                    if (!written) lastWriteBackFailed = true
+                }
                 return decoded
             }
         }
