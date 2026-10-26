@@ -38,6 +38,26 @@ import java.util.concurrent.atomic.AtomicInteger
  * All privileged commands for profile activation are bundled into a single shell execution,
  * completing in <20ms and causing zero game startup delay.
  */
+internal data class GameModeStep(
+    val command: String,
+    val verifyCmd: String?,
+    val expected: String?,
+    val fixedPerformance: Boolean,
+)
+
+internal object GameModeStepVerify {
+    fun verified(putExitCode: Int, read: PrivilegedResult?, expected: String?, fixedPerformance: Boolean): Boolean {
+        if (putExitCode != 0) return false
+        if (expected == null) return true
+        if (read == null || read.exitCode != 0) return false
+        return if (fixedPerformance) {
+            read.output.trim() == "true"
+        } else {
+            SafetyChecks.parseBackgroundLimit(read.output) == expected
+        }
+    }
+}
+
 object GameModeEngine {
     private const val TAG = "GameModeEngine"
     private const val MARKER_FILE = "gamemode-marker.txt"
@@ -57,7 +77,7 @@ object GameModeEngine {
 
     // ── Public API ─────────────────────────────────────────────────────────────
 
-    /** Apply game-mode optimizations at session start in a single rapid IPC execution. */
+    /** Apply game-mode optimizations at session start, one checked step at a time. */
     @Synchronized
     fun apply(context: Context, sessionGen: Int = 0): String {
         activeGen.set(sessionGen)
@@ -73,7 +93,9 @@ object GameModeEngine {
         if (!Tweaks.hasKey(context, "background_process_limit")) {
             val resolvedBg = Preflight.resolveBackgroundLimitOriginal(exec(context, "settings get global background_process_limit"))
             if (resolvedBg.leftoverDetected) {
-                Log.w(TAG, "preflight: leftover background limit detected with empty journal, recording null original")
+                Log.w(TAG, "preflight: suspected leftover background limit, apply aborted")
+                aggressiveActive = false
+                return "game mode: aborted (suspected leftover background limit, restore defaults explicitly to continue)"
             }
             items.add(settingItem("background_process_limit", resolvedBg.original, sessionGen))
         }
@@ -100,26 +122,55 @@ object GameModeEngine {
 
         PrivilegedBridge.ensureBackgroundProtection(context)
 
-        val batchScript = buildString {
-            append("settings put global background_process_limit 4 2>/dev/null; ")
-            append("am kill-all 2>/dev/null; ")
-            append("cmd game mode 2 $pkg 2>/dev/null; ")
-
-            // Turbo steps (if opted in)
-            if (aggressive) {
-                append("settings put global sem_enhanced_cpu_responsiveness 1 2>/dev/null; ")
-                append("settings put global restricted_device_performance 0,0 2>/dev/null; ")
-                append("cmd power set-fixed-performance-mode-enabled true 2>/dev/null; ")
-                append("settings put global adaptive_battery_management_enabled 0 2>/dev/null; ")
+        val steps = mutableListOf(
+            GameModeStep("settings put global background_process_limit 4", "settings get global background_process_limit", "4", false),
+            GameModeStep("am kill-all", null, null, false),
+            GameModeStep("cmd game mode 2 $pkg", null, null, false),
+        )
+        if (aggressive) {
+            steps.add(GameModeStep("settings put global sem_enhanced_cpu_responsiveness 1", "settings get global sem_enhanced_cpu_responsiveness", "1", false))
+            steps.add(GameModeStep("settings put global restricted_device_performance 0,0", "settings get global restricted_device_performance", "0,0", false))
+            steps.add(GameModeStep("cmd power set-fixed-performance-mode-enabled true", "cmd power get-fixed-performance-mode-enabled", "true", true))
+            steps.add(GameModeStep("settings put global adaptive_battery_management_enabled 0", "settings get global adaptive_battery_management_enabled", "0", false))
+        }
+        for (step in steps) {
+            val put = execChecked(context, step.command)
+            val verified = GameModeStepVerify.verified(put.exitCode, step.verifyCmd?.let { execChecked(context, it) }, step.expected, step.fixedPerformance)
+            if (!verified) {
+                Log.w(TAG, "game mode: checked step failed, rolling back: ${step.command}")
+                aggressiveActive = false
+                val rolledBack = Tweaks.rollback(context)
+                return if (rolledBack) {
+                    "game mode: aborted (checked step failed, rolled back)"
+                } else {
+                    "game mode: aborted (checked step failed, rollback failed, journal kept)"
+                }
             }
         }
-
-        exec(context, batchScript)
         applied = true
 
         val summary = "game mode: ON [gen=$sessionGen, mode=${if (aggressive) "TURBO" else "COOL_LOAD_REDUCER"}]"
         Log.i(TAG, summary)
         return summary
+    }
+
+    fun resolveSuspectLeftover(context: Context, restoreDefaults: Boolean, sessionGen: Int = 0): String {
+        if (Tweaks.hasKey(context, "background_process_limit")) {
+            return "suspect leftover: journal already records background limit"
+        }
+        val resolved = Preflight.resolveBackgroundLimitOriginal(exec(context, "settings get global background_process_limit"))
+        if (!resolved.leftoverDetected) {
+            return "suspect leftover: current background limit is clean"
+        }
+        if (!restoreDefaults) {
+            return "suspect leftover: no change made, pass restoreDefaults=true to record restore-by-delete"
+        }
+        val recorded = Tweaks.recordItem(context, settingItem("background_process_limit", null, sessionGen))
+        return if (recorded) {
+            "suspect leftover: restore-by-delete recorded"
+        } else {
+            "suspect leftover: journal save failed"
+        }
     }
 
     /**
@@ -316,6 +367,16 @@ object GameModeEngine {
         } catch (t: Throwable) {
             Log.w(TAG, "exec error: $cmd", t)
             ""
+        }
+    }
+
+    private fun execChecked(context: Context, cmd: String): PrivilegedResult {
+        return try {
+            PrivilegedBridge.ensureSessionToken(context)
+            PrivilegedBridge.executeChecked(cmd)
+        } catch (t: Throwable) {
+            Log.w(TAG, "execChecked error: $cmd", t)
+            PrivilegedResult(-1, "", PrivilegedMode.NONE)
         }
     }
 
