@@ -3,7 +3,6 @@ package com.droiddeck.launcher.core.privileged
 import android.content.Context
 import android.util.Log
 import java.io.File
-import java.io.FileOutputStream
 
 enum class JournalVerifyMode {
     VALUE,
@@ -255,7 +254,10 @@ object Tweaks {
     private const val JOURNAL_FILE = "safety-journal.json"
     private val rollbackLock = Any()
 
-    fun recoveryNeeded(context: Context): Boolean = journalFile(context).exists()
+    fun recoveryNeeded(context: Context): Boolean {
+        val file = journalFile(context)
+        return file.exists() || AtomicStateFile.bakFile(file).exists() || AtomicStateFile.tmpFile(file).exists()
+    }
 
     fun hasKey(context: Context, key: String): Boolean {
         return load(context)?.any { it.key == key } == true
@@ -288,8 +290,7 @@ object Tweaks {
     private fun rollbackLocked(context: Context): Boolean {
         val current = load(context) ?: return false
         if (current.isEmpty()) {
-            runCatching { journalFile(context).delete() }
-            return true
+            return AtomicStateFile.delete(journalFile(context))
         }
         val result = JournalRollback.rollback(
             current,
@@ -304,8 +305,7 @@ object Tweaks {
             },
         )
         if (result.success) {
-            runCatching { journalFile(context).delete() }
-            return true
+            return AtomicStateFile.delete(journalFile(context))
         }
         Log.w(TAG, "rollback failed at ${result.failedKey}, journal kept")
         save(context, result.remaining)
@@ -318,33 +318,19 @@ object Tweaks {
     }
 
     private fun load(context: Context): List<JournalItem>? {
-        return try {
-            val file = journalFile(context)
-            if (!file.exists()) return emptyList()
-            JournalCodec.decode(file.readText())
-        } catch (_: Exception) {
-            null
+        val file = journalFile(context)
+        if (!file.exists() && !AtomicStateFile.bakFile(file).exists() && !AtomicStateFile.tmpFile(file).exists()) {
+            return emptyList()
         }
+        return AtomicStateFile.readRecovered(file, JournalCodec::decode)
     }
 
     private fun save(context: Context, items: List<JournalItem>): Boolean {
-        return try {
-            val file = journalFile(context)
-            if (items.isEmpty()) {
-                if (file.exists()) file.delete()
-                return true
-            }
-            val tmp = File(file.parentFile, "${file.name}.tmp")
-            FileOutputStream(tmp).use { stream ->
-                stream.write(JournalCodec.encode(items).toByteArray(Charsets.UTF_8))
-                stream.channel.force(true)
-            }
-            if (file.exists()) file.delete()
-            tmp.renameTo(file)
-        } catch (t: Throwable) {
-            Log.w(TAG, "journal save failed", t)
-            false
-        }
+        val file = journalFile(context)
+        if (items.isEmpty()) return AtomicStateFile.delete(file)
+        val saved = AtomicStateFile.save(file, JournalCodec.encode(items))
+        if (!saved) Log.w(TAG, "journal save failed")
+        return saved
     }
 
     private fun journalFile(context: Context): File {
