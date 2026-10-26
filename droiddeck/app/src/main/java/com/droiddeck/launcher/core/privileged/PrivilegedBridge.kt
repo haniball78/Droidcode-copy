@@ -139,7 +139,7 @@ object PrivilegedBridge {
         return executeChecked(command, DEFAULT_TIMEOUT_MS)
     }
 
-    fun executeChecked(command: String, timeoutMs: Int): PrivilegedResult {
+    fun executeChecked(command: String, timeoutMs: Int = DEFAULT_TIMEOUT_MS): PrivilegedResult {
         if (_status.value.mode == PrivilegedMode.NONE) {
             refresh()
         }
