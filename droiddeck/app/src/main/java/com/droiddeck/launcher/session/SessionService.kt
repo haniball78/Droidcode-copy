@@ -241,7 +241,7 @@ class SessionService : Service() {
             }
             ACTION_STOP -> {
                 Log.i(TAG, "stop requested from the notification")
-                SessionExit.beginTeardown()
+                SessionExit.beginTeardown(sessionGen)
                 stopSession(0)
                 return START_NOT_STICKY
             }
@@ -483,8 +483,13 @@ class SessionService : Service() {
         Log.i(TAG, GpuClockPin.start(this))
         Log.i(TAG, GameThreadHints.start(this))
         if (SessionPrefs.advancedMasterEnabled(this)) {
-            Log.i(TAG, com.droiddeck.launcher.core.privileged.GameModeEngine.apply(this, gen))
-            Log.i(TAG, com.droiddeck.launcher.core.privileged.AppFreezerEngine.apply(this, gen))
+            if (com.droiddeck.launcher.core.privileged.RecoveryCoordinator.recoveryPending(this)) {
+                Log.w(TAG, "tweaks blocked: unrecovered journal or legacy marker from a previous session")
+                SessionEvents.record("session.start_blocked_recovery_pending", mapOf("gen" to gen))
+            } else {
+                Log.i(TAG, com.droiddeck.launcher.core.privileged.GameModeEngine.apply(this, gen))
+                Log.i(TAG, com.droiddeck.launcher.core.privileged.AppFreezerEngine.apply(this, gen))
+            }
         } else {
             Log.i(TAG, "advanced performance engines: SKIPPED (master switch off)")
         }
@@ -1879,6 +1884,11 @@ class SessionService : Service() {
             safetyMonitor?.setTweaksActive(false)
             return
         }
+        if (com.droiddeck.launcher.core.privileged.RecoveryCoordinator.recoveryBlocksNewSession(this, gen)) {
+            Log.w(TAG, "resume re-apply blocked: stale journal or legacy marker from another generation")
+            safetyMonitor?.setTweaksActive(false)
+            return
+        }
         com.droiddeck.launcher.core.privileged.GameModeEngine.apply(this, gen)
         com.droiddeck.launcher.core.privileged.AppFreezerEngine.apply(this, gen)
         val pid = SessionState.guestPid.takeIf { it > 1 } ?: sessionPid
@@ -2095,7 +2105,7 @@ class SessionService : Service() {
         SessionEvents.record("guest.exited", mapOf("status" to status))
         safetyMonitor?.stop()
         safetyMonitor = null
-        SessionExit.beginTeardown()
+        SessionExit.beginTeardown(sessionGen)
         GpuClockPin.stop(this)
         GameThreadHints.stop()
         com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
@@ -2179,7 +2189,7 @@ class SessionService : Service() {
 
     override fun onDestroy() {
         if (SessionState.running) {
-            SessionExit.beginDirect(ExitReason.SERVICE_DESTROYED)
+            SessionExit.beginDirect(ExitReason.SERVICE_DESTROYED, sessionGen)
             stopSession(0)
         }
         GameThreadHints.stop() // also when the session never got as far as running
