@@ -26,11 +26,15 @@ public class DroidDeckPrivilegedServer {
     private static volatile boolean deadmanExpired = false;
     private static volatile long deadmanLastBeatMs = -1L;
     private static final long DEADMAN_WATCHDOG_MS = 45000L;
+    private static final int MAX_LINE_LENGTH = 8192;
 
     public static void main(String[] args) {
-        if (args.length > 0 && args[0] != null && !args[0].isEmpty()) {
-            sessionToken = args[0];
+        if (args.length == 0 || args[0] == null || args[0].trim().isEmpty()) {
+            System.err.println(TAG + ": refusing to start without a session token");
+            System.exit(2);
+            return;
         }
+        sessionToken = args[0];
         int uid = Process.myUid();
         int pid = Process.myPid();
         System.out.println(TAG + ": Starting daemon with UID=" + uid + ", PID=" + pid);
@@ -79,7 +83,7 @@ public class DroidDeckPrivilegedServer {
                 PrintWriter writer = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true)
             ) {
                 String line = reader.readLine();
-                if (line == null) return;
+                if (line == null || line.length() > MAX_LINE_LENGTH) return;
 
                 if (line.equals("PING")) {
                     writer.println("PONG uid=" + Process.myUid() + " pid=" + Process.myPid());
@@ -88,14 +92,15 @@ public class DroidDeckPrivilegedServer {
                 boolean authenticated = false;
                 if (line.startsWith("AUTH:")) {
                     String token = line.substring(5);
-                    if (sessionToken == null || !sessionToken.equals(token)) {
+                    if (sessionToken == null || sessionToken.isEmpty() || !sessionToken.equals(token)) {
                         writer.println("UNAUTHORIZED");
                         return;
                     }
                     authenticated = true;
                     line = reader.readLine();
-                    if (line == null) return;
-                } else if (sessionToken != null) {
+                    if (line == null || line.length() > MAX_LINE_LENGTH) return;
+                }
+                if (!authenticated) {
                     writer.println("UNAUTHORIZED");
                     return;
                 }
