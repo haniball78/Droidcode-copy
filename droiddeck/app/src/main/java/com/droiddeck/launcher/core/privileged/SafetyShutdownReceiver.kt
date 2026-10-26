@@ -25,7 +25,7 @@ object ShutdownRestore {
             finishOnce()
         }, "safety-shutdown-deadline").start()
         Thread({
-            val start = System.currentTimeMillis()
+            val start = android.os.SystemClock.elapsedRealtime()
             if (!Tweaks.recoveryNeeded(appContext)) {
                 Log.i(TAG, "shutdown restore not needed, no journal")
                 finishOnce()
@@ -37,7 +37,7 @@ object ShutdownRestore {
                 Log.w(TAG, "shutdown restore", t)
                 false
             }
-            val elapsed = System.currentTimeMillis() - start
+            val elapsed = android.os.SystemClock.elapsedRealtime() - start
             if (ok) {
                 Log.i(TAG, "shutdown restore ok in ${elapsed}ms")
             } else {
