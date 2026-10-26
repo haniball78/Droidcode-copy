@@ -151,7 +151,7 @@ fun PrivilegedEnginePage(onBack: () -> Unit) {
                         Icons.Outlined.Block, "Disable Phantom Limiter Now",
                         "Apply max_phantom_processes=2147483647 immediately",
                     ) {
-                        withContext(Dispatchers.IO) { PrivilegedBridge.disablePhantomProcesses() }
+                        withContext(Dispatchers.IO) { PrivilegedBridge.disablePhantomProcesses(ctx) }
                         Toast.makeText(ctx, "Phantom process limit disabled", Toast.LENGTH_SHORT).show()
                     }
                     QuickActionButton(
