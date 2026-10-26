@@ -518,6 +518,49 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("dynamicGovernor", on).apply()
     }
 
+    fun safetyWarnLevel(context: Context): Int = prefs(context).getInt("safetyWarnLevel", 15)
+
+    fun setSafetyWarnLevel(context: Context, level: Int) {
+        prefs(context).edit().putInt("safetyWarnLevel", level).apply()
+    }
+
+    fun safetyTweaksLevel(context: Context): Int = prefs(context).getInt("safetyTweaksLevel", 10)
+
+    fun setSafetyTweaksLevel(context: Context, level: Int) {
+        prefs(context).edit().putInt("safetyTweaksLevel", level).apply()
+    }
+
+    fun safetyEmergencyLevel(context: Context): Int =
+        prefs(context).getInt("safetyEmergencyLevel", 5).coerceAtLeast(5)
+
+    fun setSafetyEmergencyLevel(context: Context, level: Int) {
+        prefs(context).edit().putInt("safetyEmergencyLevel", level.coerceAtLeast(5)).apply()
+    }
+
+    fun safetyCountdownSeconds(context: Context): Int = prefs(context).getInt("safetyCountdownSeconds", 20)
+
+    fun setSafetyCountdownSeconds(context: Context, seconds: Int) {
+        prefs(context).edit().putInt("safetyCountdownSeconds", seconds.coerceIn(5, 60)).apply()
+    }
+
+    fun safetyLeaveTimeoutSeconds(context: Context): Int = prefs(context).getInt("safetyLeaveTimeoutSeconds", 90)
+
+    fun setSafetyLeaveTimeoutSeconds(context: Context, seconds: Int) {
+        prefs(context).edit().putInt("safetyLeaveTimeoutSeconds", seconds).apply()
+    }
+
+    fun safetyAutoResume(context: Context): Boolean = prefs(context).getBoolean("safetyAutoResume", false)
+
+    fun setSafetyAutoResume(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("safetyAutoResume", on).apply()
+    }
+
+    fun safetyExitMode(context: Context): String = prefs(context).getString("safetyExitMode", "tweaks") ?: "tweaks"
+
+    fun setSafetyExitMode(context: Context, mode: String) {
+        prefs(context).edit().putString("safetyExitMode", mode).apply()
+    }
+
     /** Whether the game's busiest threads are named to the power HAL for a boost (GameThreadHints). */
     fun gameThreadHints(context: Context): Boolean = prefs(context).getBoolean("gameThreadHints", true)
 
