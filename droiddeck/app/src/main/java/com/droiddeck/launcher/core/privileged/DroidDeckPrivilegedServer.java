@@ -21,8 +21,12 @@ public class DroidDeckPrivilegedServer {
 
     public static final int PORT = 28751;
     private static final String TAG = "DroidDeckPrivServer";
+    private static String sessionToken = null;
 
     public static void main(String[] args) {
+        if (args.length > 0 && args[0] != null && !args[0].isEmpty()) {
+            sessionToken = args[0];
+        }
         int uid = Process.myUid();
         int pid = Process.myPid();
         System.out.println(TAG + ": Starting daemon with UID=" + uid + ", PID=" + pid);
@@ -58,7 +62,21 @@ public class DroidDeckPrivilegedServer {
 
                 if (line.equals("PING")) {
                     writer.println("PONG uid=" + Process.myUid() + " pid=" + Process.myPid());
-                } else if (line.startsWith("EXEC:")) {
+                    return;
+                }
+                if (line.startsWith("AUTH:")) {
+                    String token = line.substring(5);
+                    if (sessionToken == null || !sessionToken.equals(token)) {
+                        writer.println("UNAUTHORIZED");
+                        return;
+                    }
+                    line = reader.readLine();
+                    if (line == null) return;
+                } else if (sessionToken != null) {
+                    writer.println("UNAUTHORIZED");
+                    return;
+                }
+                if (line.startsWith("EXEC:")) {
                     String base64Cmd = line.substring(5);
                     byte[] decoded = Base64.getDecoder().decode(base64Cmd);
                     String command = new String(decoded, StandardCharsets.UTF_8);
@@ -66,10 +84,15 @@ public class DroidDeckPrivilegedServer {
                 } else if (line.equals("DISABLE_PHANTOM")) {
                     boolean ok = disablePhantomProcessKillerInternal();
                     writer.println(ok ? "OK" : "ERROR");
+                } else if (line.startsWith("BOOST_PERFORMANCE_TURBO:")) {
+                    String pidStr = line.substring(24);
+                    int targetPid = Integer.parseInt(pidStr);
+                    boolean ok = boostPerformanceInternal(targetPid, true);
+                    writer.println(ok ? "OK" : "ERROR");
                 } else if (line.startsWith("BOOST_PERFORMANCE:")) {
                     String pidStr = line.substring(18);
                     int targetPid = Integer.parseInt(pidStr);
-                    boolean ok = boostPerformanceInternal(targetPid);
+                    boolean ok = boostPerformanceInternal(targetPid, false);
                     writer.println(ok ? "OK" : "ERROR");
                 } else if (line.startsWith("GRANT_PERMS:")) {
                     String pkg = line.substring(12);
@@ -119,13 +142,17 @@ public class DroidDeckPrivilegedServer {
         }
     }
 
-    private static boolean boostPerformanceInternal(int targetPid) {
+    private static boolean boostPerformanceInternal(int targetPid, boolean aggressive) {
         try {
+            int nice = aggressive ? -20 : -10;
+            String fixed = aggressive
+                ? "cmd power set-fixed-performance-mode-enabled true 2>/dev/null || true"
+                : "true";
             String script = String.format(
                 "echo -1000 > /proc/%d/oom_score_adj 2>/dev/null || true; " +
-                "renice -n -20 -p %d 2>/dev/null || true; " +
-                "cmd power set-fixed-performance-mode-enabled true 2>/dev/null || true",
-                targetPid, targetPid
+                "renice -n %d -p %d 2>/dev/null || true; " +
+                "%s",
+                targetPid, nice, targetPid, fixed
             );
             Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", script}).waitFor();
             return true;
