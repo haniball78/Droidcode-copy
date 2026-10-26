@@ -7,11 +7,15 @@ on:
     paths:
       - 'droiddeck/app/src/main/java/com/droiddeck/launcher/core/privileged/**'
       - 'droiddeck/app/src/test/java/com/droiddeck/launcher/core/privileged/**'
+      - 'droiddeck/app/src/main/java/com/droiddeck/launcher/session/**'
+      - 'droiddeck/app/src/test/java/com/droiddeck/launcher/session/**'
       - '.github/workflows/droiddeck-safety-tests.yml'
   pull_request:
     paths:
       - 'droiddeck/app/src/main/java/com/droiddeck/launcher/core/privileged/**'
       - 'droiddeck/app/src/test/java/com/droiddeck/launcher/core/privileged/**'
+      - 'droiddeck/app/src/main/java/com/droiddeck/launcher/session/**'
+      - 'droiddeck/app/src/test/java/com/droiddeck/launcher/session/**'
       - '.github/workflows/droiddeck-safety-tests.yml'
   workflow_dispatch:
 
@@ -24,7 +28,7 @@ concurrency:
 
 jobs:
   safety-unit-tests:
-    name: Safety Phase 0 unit tests
+    name: Safety unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -40,13 +44,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Run SafetyChecks unit tests
+      - name: Run safety unit tests
         run: |
           set -o pipefail
           cd droiddeck
           chmod +x ./gradlew
           ./gradlew :app:testDebugUnitTest \
-            --tests "com.droiddeck.launcher.core.privileged.SafetyChecksTest" \
+            --tests "com.droiddeck.launcher.core.privileged.*" \
+            --tests "com.droiddeck.launcher.session.*" \
             -PndkVersion=29.0.14206865 \
             -PskipRust=true \
             -PskipVerifyRuntimeInputs=true \
