@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger
  *    telephony, in-call UI, emergency, sound engines (Dolby/SoundAlive), Google Play Core,
  *    active keyboards (IME), accessibility, and DroidDeck/Shizuku/Termux services.
  * 5. Persistent Fail-Safe: Every suspended package is committed to `suspended-packages.txt`.
- *    On exit or upon next launch (even after crash/power loss), `clearLeftover()` restores everything.
+ *    On exit or upon next launch (even after crash/power loss), `RecoveryCoordinator` restores everything.
  */
 object AppFreezerEngine {
     private const val TAG = "AppFreezerEngine"
@@ -163,7 +163,7 @@ object AppFreezerEngine {
             return "freezer: aborted (session cancelled)"
         }
 
-        if (Tweaks.hasKey(context, "app-freezer") && !Tweaks.rollback(context)) {
+        if (hasFreezerJournal(context) && !Tweaks.rollback(context)) {
             return "freezer: aborted (previous journal rollback failed)"
         }
         val legacy = loadLegacyMarker(context)
@@ -194,24 +194,41 @@ object AppFreezerEngine {
         }
 
         if (uniqueTargets.isNotEmpty() || SessionPrefs.deepSystemDoze(context)) {
-            val restoreScript = buildString {
-                append("cmd deviceidle unforce 2>/dev/null; ")
-                if (uniqueTargets.isNotEmpty()) {
+            val items = mutableListOf<JournalItem>()
+            if (SessionPrefs.deepSystemDoze(context)) {
+                items.add(
+                    JournalItem(
+                        key = "app-freezer-doze",
+                        original = null,
+                        restoreCmd = "cmd deviceidle unforce 2>/dev/null",
+                        verifyCmd = "dumpsys deviceidle",
+                        verifyMode = JournalVerifyMode.CONTAINS,
+                        persistent = true,
+                        generation = sessionGen,
+                        verifyExpect = "mForceIdle=false",
+                    )
+                )
+            }
+            if (uniqueTargets.isNotEmpty()) {
+                val restoreScript = buildString {
                     uniqueTargets.chunked(50).forEach { chunk ->
                         append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
                     }
                 }
+                val grepFlags = uniqueTargets.joinToString(" ") { "-e $it" }
+                items.add(
+                    JournalItem(
+                        key = "app-freezer-packages",
+                        original = "0",
+                        restoreCmd = restoreScript,
+                        verifyCmd = "cmd package list packages -s --user 0 2>/dev/null | grep -F $grepFlags 2>/dev/null | wc -l",
+                        verifyMode = JournalVerifyMode.VALUE,
+                        persistent = true,
+                        generation = sessionGen,
+                    )
+                )
             }
-            val item = JournalItem(
-                key = "app-freezer",
-                original = null,
-                restoreCmd = restoreScript,
-                verifyCmd = null,
-                verifyMode = JournalVerifyMode.EXIT,
-                persistent = true,
-                generation = sessionGen,
-            )
-            if (!Tweaks.recordItem(context, item)) {
+            if (!Tweaks.recordItems(context, items)) {
                 return "freezer: aborted (journal save failed)"
             }
             suspendedPackages.clear()
@@ -277,40 +294,52 @@ object AppFreezerEngine {
         return true
     }
 
-    /**
-     * Called on application start to ensure any packages left suspended from
-     * an earlier abrupt termination or device reboot are safely unsuspended.
-     */
-    fun clearLeftover(context: Context) {
-        if (!Tweaks.recoveryNeeded(context) && !hasLegacyMarker(context)) return
-        Thread({
-            try {
-                Log.w(TAG, "clearLeftover: found leftover suspended packages, restoring...")
-                val legacy = loadLegacyMarker(context)
-                if (legacy != null) {
-                    val script = buildString {
-                        append("cmd deviceidle unforce 2>/dev/null; ")
-                        if (legacy.first.isNotEmpty()) {
-                            legacy.first.chunked(50).forEach { chunk ->
-                                append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
-                            }
-                        }
-                    }
-                    if (execChecked(context, script).exitCode != 0) {
-                        Log.w(TAG, "clearLeftover: restore failed, legacy marker kept for retry")
-                        return@Thread
-                    }
-                    deleteLegacyMarker(context)
+    fun hasFreezerJournal(context: Context): Boolean {
+        return Tweaks.hasKey(context, "app-freezer") ||
+            Tweaks.hasKey(context, "app-freezer-doze") ||
+            Tweaks.hasKey(context, "app-freezer-packages")
+    }
+
+    fun migrateLegacyToJournal(context: Context): Boolean {
+        val appContext = context.applicationContext
+        val legacy = loadLegacyMarker(appContext) ?: return true
+        val packages = legacy.first
+        val items = mutableListOf<JournalItem>()
+        if (legacy.second) {
+            items.add(
+                JournalItem(
+                    key = "app-freezer-doze",
+                    original = null,
+                    restoreCmd = "cmd deviceidle unforce 2>/dev/null",
+                    verifyCmd = "dumpsys deviceidle",
+                    verifyMode = JournalVerifyMode.CONTAINS,
+                    persistent = true,
+                    generation = 0,
+                    verifyExpect = "mForceIdle=false",
+                )
+            )
+        }
+        if (packages.isNotEmpty()) {
+            val restoreScript = buildString {
+                packages.chunked(50).forEach { chunk ->
+                    append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
                 }
-                if (!Tweaks.rollback(context)) {
-                    Log.w(TAG, "clearLeftover: restore failed, journal kept for retry")
-                    return@Thread
-                }
-                Log.i(TAG, "clearLeftover: all leftover packages unsuspended successfully")
-            } catch (t: Throwable) {
-                Log.e(TAG, "clearLeftover error", t)
             }
-        }, "freezer-clear-leftover").start()
+            val grepFlags = packages.joinToString(" ") { "-e $it" }
+            items.add(
+                JournalItem(
+                    key = "app-freezer-packages",
+                    original = "0",
+                    restoreCmd = restoreScript,
+                    verifyCmd = "cmd package list packages -s --user 0 2>/dev/null | grep -F $grepFlags 2>/dev/null | wc -l",
+                    verifyMode = JournalVerifyMode.VALUE,
+                    persistent = true,
+                    generation = 0,
+                )
+            )
+        }
+        if (items.isEmpty()) return true
+        return Tweaks.recordItems(appContext, items)
     }
 
     fun isDozeActive(): Boolean = dozeForced
@@ -369,9 +398,9 @@ object AppFreezerEngine {
         } catch (_: Exception) { null }
     }
 
-    private fun hasLegacyMarker(context: Context): Boolean = File(context.filesDir, MARKER_FILE).exists()
+    fun hasLegacyMarker(context: Context): Boolean = File(context.filesDir, MARKER_FILE).exists()
 
-    private fun deleteLegacyMarker(context: Context) {
+    fun deleteLegacyMarker(context: Context) {
         try { File(context.filesDir, MARKER_FILE).delete() } catch (_: Exception) {}
     }
 
