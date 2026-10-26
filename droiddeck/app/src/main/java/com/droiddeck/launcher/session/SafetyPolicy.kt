@@ -23,6 +23,7 @@ data class SafetyInput(
     val warnedAt15: Boolean,
     val stopCountdownActive: Boolean,
     val bridgeLostAlreadyReported: Boolean,
+    val bridgeUnknown: Boolean = false,
 )
 
 data class SafetyDecision(
@@ -46,6 +47,7 @@ internal object SafetyPolicy {
     const val COUNTDOWN_SECONDS = 20
     const val THERMAL_SEVERE = 3
     const val THERMAL_CRITICAL = 4
+    const val THERMAL_UNKNOWN = -1
 
     fun evaluate(input: SafetyInput, thresholds: SafetyThresholds = SafetyThresholds()): SafetyDecision {
         var tweaksEnded = input.tweaksAlreadyEnded
@@ -67,9 +69,12 @@ internal object SafetyPolicy {
                 return SafetyDecision(SafetyAction.WARN_BATTERY_15, tweaksEnded, warned, bridgeReported)
             }
         }
-        if (input.thermalStatus >= THERMAL_SEVERE && input.tweaksActive && !tweaksEnded) {
+        if (input.thermalStatus != THERMAL_UNKNOWN && input.thermalStatus >= THERMAL_SEVERE && input.tweaksActive && !tweaksEnded) {
             tweaksEnded = true
             return SafetyDecision(SafetyAction.END_TWEAKS, tweaksEnded, warned, bridgeReported)
+        }
+        if (input.bridgeUnknown) {
+            return SafetyDecision(SafetyAction.NONE, tweaksEnded, warned, bridgeReported)
         }
         if (!input.bridgeOk && !bridgeReported) {
             bridgeReported = true
