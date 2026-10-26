@@ -371,6 +371,7 @@ internal fun SetupPanel(
                             }
                         }
                         SettingsGroup(stringResource(R.string.setup_runtime)) { runtimeCheck(false) }
+                        PhantomDisableCard(host, s.phantomProcessStatus, a.onSetPhantomProcessLimit, a.onRefreshPhantomStatus) { limitEnabled -> onRequestWirelessAdb(limitEnabled) }
                         val privStatus by PrivilegedBridge.statusFlow.collectAsState()
                         SettingsGroup("Privileged Engine (ADB / Shizuku)") {
                             CheckRow(
@@ -518,6 +519,81 @@ internal fun SetupPanel(
 }
 
 @Composable
+@Composable
+internal fun PhantomDisableCard(
+    host: MenuHost,
+    status: PhantomProcessStatus,
+    onSetLimit: (Boolean, (String?) -> Unit) -> Unit,
+    onRefreshStatus: () -> Unit,
+    onApplyFailed: ((Boolean) -> Unit)? = null,
+) {
+    val ctx = LocalContext.current
+    val colors = MaterialTheme.colorScheme
+    var enabled by remember { mutableStateOf(SessionPrefs.phantomDisableEnabled(ctx)) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var showMore by rememberSaveable { mutableStateOf(false) }
+    val apply: (Boolean) -> Unit = { disable ->
+        if (!busy) {
+            busy = true
+            message = null
+            onSetLimit(!disable) { error ->
+                // onSetLimit takes limitEnabled, the inverse of disable.
+                busy = false
+                if (error == null) {
+                    SessionPrefs.setPhantomDisableEnabled(ctx, disable)
+                    enabled = disable
+                    message = ctx.getString(if (disable) R.string.phantom_card_disabled else R.string.phantom_card_reenabled)
+                    onRefreshStatus()
+                } else {
+                    message = ctx.getString(R.string.setup_limit_adb_failed)
+                    onApplyFailed?.invoke(!disable)
+                }
+            }
+        }
+    }
+    LaunchedEffect(status) {
+        if (!SessionPrefs.phantomDisablePreferenceSet(ctx)) {
+            if (status == PhantomProcessStatus.DISABLED) {
+                SessionPrefs.setPhantomDisableEnabled(ctx, true)
+            } else if (status != PhantomProcessStatus.NOT_APPLICABLE && status != PhantomProcessStatus.UNREADABLE) {
+                apply(true)
+            }
+        }
+    }
+    SettingsGroup(stringResource(R.string.phantom_card_title)) {
+        ToggleRow(
+            host = host,
+            key = "phantom-disable",
+            label = stringResource(R.string.phantom_card_toggle),
+            hint = stringResource(R.string.phantom_card_short),
+            checked = enabled,
+            enabled = !busy && status != PhantomProcessStatus.NOT_APPLICABLE,
+        ) { on ->
+            if (on != enabled) apply(on)
+        }
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (status == PhantomProcessStatus.NOT_APPLICABLE) {
+                Text(stringResource(R.string.phantom_card_not_applicable), fontSize = 13.sp, color = colors.onSurfaceVariant)
+            } else {
+                Text(PhantomProcessLimit.title(ctx, status), fontSize = 13.sp, color = colors.onSurfaceVariant)
+            }
+            Actions {
+                SecondaryButton(if (showMore) stringResource(R.string.common_hide) else stringResource(R.string.phantom_card_learn_more), compact = true) { showMore = !showMore }
+                if (enabled && status != PhantomProcessStatus.NOT_APPLICABLE) {
+                    SecondaryButton(stringResource(R.string.phantom_card_reenable), compact = true, enabled = !busy) { apply(false) }
+                }
+                SecondaryButton(stringResource(R.string.setup_check_again), compact = true, enabled = !busy) { onRefreshStatus() }
+            }
+            AnimatedVisibility(showMore, enter = expandVertically(Motion.sp(1f)) + fadeIn(Motion.sp(1f)), exit = shrinkVertically(Motion.sp(1f)) + fadeOut(Motion.sp(1f))) {
+                Text(stringResource(R.string.phantom_card_learn_more_text), fontSize = 13.sp, color = colors.onSurfaceVariant)
+            }
+            if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp))
+            message?.let { Text(it, fontSize = 13.sp, color = colors.onSurfaceVariant) }
+        }
+    }
+}
+
 private fun AdvancedSetupTab(
     host: MenuHost,
     s: FrontEndState,
@@ -647,6 +723,10 @@ private fun AdvancedSetupTab(
                 }
             }
         }
+    }
+
+    val phantomCard: @Composable () -> Unit = {
+        PhantomDisableCard(host, s.phantomProcessStatus, a.onSetPhantomProcessLimit, a.onRefreshPhantomStatus)
     }
 
     val privilegedCard: @Composable () -> Unit = {
@@ -872,6 +952,7 @@ private fun AdvancedSetupTab(
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 masterControlCard()
+                phantomCard()
                 privilegedCard()
                 gameModeGroup()
                 freezerGroup()
@@ -885,6 +966,7 @@ private fun AdvancedSetupTab(
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             masterControlCard()
+            phantomCard()
             privilegedCard()
             gameModeGroup()
             freezerGroup()
