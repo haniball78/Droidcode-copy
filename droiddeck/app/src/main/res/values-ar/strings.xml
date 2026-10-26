@@ -773,6 +773,15 @@
     <string name="setup_use_wireless">استخدام تصحيح الأخطاء اللاسلكي</string>
     <string name="setup_check_again">التحقّق مرة أخرى</string>
     <string name="setup_limit_turn_on">تفعيل الحد</string>
+    <string name="phantom_card_title">حدّ العمليات الفرعية (العمليات الوهمية)</string>
+    <string name="phantom_card_toggle">تعطيل حدّ العمليات الفرعية</string>
+    <string name="phantom_card_short">يُنهي Android التطبيقات التي تُنشئ عددًا كبيرًا من العمليات الفرعية. جلسات DroidDeck تُنشئ عددًا كبيرًا منها، لذلك قد يُغلق Android الجلسة دون تحذير. هذا التغيير على مستوى النظام كلّه ودائم: يؤثّر في جميع التطبيقات ويبقى بعد انتهاء الجلسات، حتى تُعيد تفعيله بنفسك.</string>
+    <string name="phantom_card_learn_more">شرح أكثر</string>
+    <string name="phantom_card_learn_more_text">البطارية: قد تُبقي تطبيقات الخلفية عملياتها الفرعية تعمل وتستهلك بطارية أكثر. الأداء والذاكرة: العمليات الإضافية تستهلك الذاكرة، وقد يُنهي Android تطبيقات أخرى لإفساح المجال. الاستقرار: التطبيق الذي يُنشئ عمليات دون توقّف لن يوقفه حدّ بعد الآن. الأمان: هذا الحدّ طبقة صغيرة فقط — يمنع التطبيقات من التحايل على قيود الخلفية، وليس حماية رئيسية — لذلك الخطر محدود، وأنت من اخترت هذا الإعداد بنفسك. للتراجع عنه، أوقف المفتاح أو اضغط «إعادة تفعيل قاتل العمليات الوهمية»؛ فتُستعاد الحدود الأصلية فورًا.</string>
+    <string name="phantom_card_reenable">إعادة تفعيل قاتل العمليات الوهمية</string>
+    <string name="phantom_card_disabled">تم تعطيل قاتل العمليات الوهمية.</string>
+    <string name="phantom_card_reenabled">تمت إعادة تفعيل قاتل العمليات الوهمية.</string>
+    <string name="phantom_card_not_applicable">لا يستخدم إصدار Android هذا هذا الحدّ، لذلك لا يفعل هذا المفتاح شيئًا هنا.</string>
     <string name="setup_account">حساب Steam</string>
     <string name="setup_signed_in_offline">تم تسجيل الدخول باسم %1$s · وضع عدم الاتصال</string>
     <string name="setup_signed_in">تم تسجيل الدخول باسم %1$s</string>
