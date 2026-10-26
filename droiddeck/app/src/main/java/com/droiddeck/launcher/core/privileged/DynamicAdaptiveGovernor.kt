@@ -46,6 +46,7 @@ object DynamicAdaptiveGovernor {
     private val isMonitoring = AtomicBoolean(false)
     private var thermalListener: Any? = null
     private var monitorThread: Thread? = null
+    @Volatile private var actionThread: Thread? = null
 
     // ── Public Lifecycle ───────────────────────────────────────────────────────
 
@@ -54,6 +55,10 @@ object DynamicAdaptiveGovernor {
     fun start(context: Context, sessionGen: Int, pid: Int) {
         if (!SessionPrefs.advancedMasterEnabled(context) || !SessionPrefs.dynamicGovernor(context)) {
             Log.i(TAG, "governor: disabled in settings or master switch off")
+            return
+        }
+        if (!SessionPrefs.gameModeEngine(context) || !GameModeEngine.isActive()) {
+            Log.i(TAG, "governor: game mode is not active, refusing to write system limits")
             return
         }
         stop(context) // clean previous if any
@@ -114,6 +119,11 @@ object DynamicAdaptiveGovernor {
 
         monitorThread?.interrupt()
         monitorThread = null
+        val action = actionThread
+        actionThread = null
+        if (action != null && action != Thread.currentThread()) {
+            runCatching { action.join(4000) }
+        }
 
         val pm = context.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
         if (Build.VERSION.SDK_INT >= 29 && pm != null && thermalListener != null) {
@@ -209,14 +219,14 @@ object DynamicAdaptiveGovernor {
             }
         }
 
-        Thread({
+        actionThread = Thread({
             try {
                 if (!running || (activeSessionGen != 0 && sessionGen != activeSessionGen)) return@Thread
-                PrivilegedBridge.execute(script)
+                PrivilegedBridge.executeChecked(script, PrivilegedBridge.DEFAULT_TIMEOUT_MS)
             } catch (t: Throwable) {
                 Log.w(TAG, "applyTierAction error: $script", t)
             }
-        }, "governor-action").start()
+        }, "governor-action").also { it.start() }
     }
 
     // ── Diagnostic & Telemetry ─────────────────────────────────────────────────
