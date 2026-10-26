@@ -21,7 +21,25 @@ public class DroidDeckPrivilegedServer {
 
     public static final int PORT = 28751;
     private static final String TAG = "DroidDeckPrivServer";
+    private static volatile ServerSocket serverSocketRef = null;
+    private static volatile boolean stoppingForTest = false;
     private static String sessionToken = null;
+
+    static int daemonPort() {
+        try {
+            return Integer.parseInt(System.getProperty("droiddeck.daemon.test.port", String.valueOf(PORT)));
+        } catch (Exception e) {
+            return PORT;
+        }
+    }
+
+    public static void stopForTest() {
+        stoppingForTest = true;
+        try {
+            if (serverSocketRef != null) serverSocketRef.close();
+        } catch (Exception ignored) {
+        }
+    }
     private static volatile boolean deadmanArmed = false;
     private static volatile boolean deadmanExpired = false;
     private static volatile long deadmanLastBeatMs = -1L;
@@ -29,6 +47,7 @@ public class DroidDeckPrivilegedServer {
     private static final int MAX_LINE_LENGTH = 8192;
 
     public static void main(String[] args) {
+        stoppingForTest = false;
         if (args.length == 0 || args[0] == null || args[0].trim().isEmpty()) {
             System.err.println(TAG + ": refusing to start without a session token");
             System.exit(2);
@@ -39,8 +58,10 @@ public class DroidDeckPrivilegedServer {
         int pid = Process.myPid();
         System.out.println(TAG + ": Starting daemon with UID=" + uid + ", PID=" + pid);
 
-        try (ServerSocket serverSocket = new ServerSocket(PORT, 10, InetAddress.getByName("127.0.0.1"))) {
-            System.out.println(TAG + ": Listening on 127.0.0.1:" + PORT);
+        int port = daemonPort();
+        try (ServerSocket serverSocket = new ServerSocket(port, 10, InetAddress.getByName("127.0.0.1"))) {
+            serverSocketRef = serverSocket;
+            System.out.println(TAG + ": Listening on 127.0.0.1:" + port);
 
             // Auto-apply essential system optimizations on daemon launch
             disablePhantomProcessKillerInternal();
@@ -67,10 +88,12 @@ public class DroidDeckPrivilegedServer {
                     Socket client = serverSocket.accept();
                     handleClient(client);
                 } catch (Exception e) {
+                    if (stoppingForTest) return;
                     System.err.println(TAG + ": Client handle error: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            if (stoppingForTest) return;
             System.err.println(TAG + ": Server failed: " + e.getMessage());
             System.exit(1);
         }
@@ -176,7 +199,8 @@ public class DroidDeckPrivilegedServer {
             String encodedOutput = Base64.getEncoder().encodeToString(output.toString().getBytes(StandardCharsets.UTF_8));
             writer.println("EXIT:" + exitCode + ":" + encodedOutput);
         } catch (Exception e) {
-            writer.println("EXIT:-1:" + Base64.getEncoder().encodeToString(e.getMessage().getBytes(StandardCharsets.UTF_8)));
+            String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            writer.println("EXIT:-1:" + Base64.getEncoder().encodeToString(message.getBytes(StandardCharsets.UTF_8)));
         }
     }
 
@@ -193,19 +217,21 @@ public class DroidDeckPrivilegedServer {
         }
     }
 
-    private static boolean disablePhantomProcessKillerInternal() {
+    private static int runShell(String command) {
         try {
-            Runtime.getRuntime().exec(new String[]{
-                "/system/bin/sh", "-c",
-                "device_config set_sync_disabled_for_tests persistent && " +
-                "device_config put activity_manager max_phantom_processes 2147483647 && " +
-                "settings put global settings_enable_monitor_phantom_procs false && " +
-                "cmd activity disable-child-process-restrictions 2>/dev/null || true"
-            }).waitFor();
-            return true;
+            java.lang.Process process = Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", command});
+            return process.waitFor();
         } catch (Exception e) {
-            return false;
+            return -1;
         }
+    }
+
+    private static boolean disablePhantomProcessKillerInternal() {
+        if (runShell("device_config set_sync_disabled_for_tests persistent") != 0) return false;
+        if (runShell("device_config put activity_manager max_phantom_processes 2147483647") != 0) return false;
+        if (runShell("settings put global settings_enable_monitor_phantom_procs false") != 0) return false;
+        runShell("cmd activity disable-child-process-restrictions 2>/dev/null || true");
+        return true;
     }
 
     private static boolean boostPerformanceInternal(int targetPid, boolean aggressive) {
