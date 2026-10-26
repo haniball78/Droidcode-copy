@@ -1651,7 +1651,7 @@ class SessionService : Service() {
             Log.i(TAG, "proot tracer $pid: nice $nice (asked for $TRACER_NICE)")
             try {
                 if (SessionPrefs.advancedMasterEnabled(this@SessionService)) {
-                    com.droiddeck.launcher.core.privileged.PrivilegedBridge.boostAndProtectSession(pid)
+                    com.droiddeck.launcher.core.privileged.PrivilegedBridge.boostAndProtectSession(this@SessionService, pid)
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "privileged boost", t)
@@ -1677,9 +1677,9 @@ class SessionService : Service() {
         SessionEvents.record("guest.exited", mapOf("status" to status))
         GpuClockPin.stop(this)
         GameThreadHints.stop()
+        com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
         com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, sessionGen)
         com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, sessionGen)
-        com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
         SessionEvents.transition(SessionPhase.STOPPING, "session.stopping", mapOf("status" to status))
         suspendOperationPending = false
         freezePending = false
@@ -1754,9 +1754,9 @@ class SessionService : Service() {
     override fun onDestroy() {
         stopSession(0)
         GameThreadHints.stop() // also when the session never got as far as running
+        com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
         com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, sessionGen)
         com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, sessionGen)
-        com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
         if (screenReceiverRegistered) {
             unregisterReceiver(screenReceiver)
             screenReceiverRegistered = false
