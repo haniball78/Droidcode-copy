@@ -36,6 +36,7 @@ class App : Application() {
         GpuClockPin.clearLeftover(this)
         com.droiddeck.launcher.core.privileged.GameModeEngine.clearLeftover(this)
         com.droiddeck.launcher.core.privileged.AppFreezerEngine.clearLeftover(this)
+        com.droiddeck.launcher.core.privileged.RecoveryCoordinator.attemptAsync(this)
         com.droiddeck.launcher.core.privileged.AppFreezerEngine.warmup(this)
         com.droiddeck.launcher.glasses.Glasses.init(this)
         com.droiddeck.launcher.glasses.GlassesMenuMirror.initialize(this)
