@@ -34,6 +34,7 @@ object SessionEvents {
             SessionState.steamVr = false
             SessionState.firstFrameSeen = false
             SessionState.suspended = false
+            SessionExit.reset()
         }
         record("session.created", mapOf("mode" to mode), dir)
     }
