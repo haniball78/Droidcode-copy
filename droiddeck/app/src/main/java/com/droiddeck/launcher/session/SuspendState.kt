@@ -61,7 +61,8 @@ internal object SuspendCodec {
     }
 
     private fun fieldValue(text: String, key: String): String? {
-        val start = text.indexOf("\"$key\"") else return null
+        val start = text.indexOf("\"$key\"")
+        if (start < 0) return null
         val colon = text.indexOf(':', start + key.length + 2)
         if (colon < 0) return null
         var i = colon + 1
