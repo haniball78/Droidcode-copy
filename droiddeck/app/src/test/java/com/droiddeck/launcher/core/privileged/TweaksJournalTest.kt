@@ -37,7 +37,7 @@ class TweaksJournalTest {
                 original = "false",
                 restoreCmd = "cmd power set-fixed-performance-mode-enabled false 2>/dev/null",
                 verifyCmd = null,
-                verifyMode = JournalVerifyMode.EXIT,
+                verifyMode = JournalVerifyMode.UNVERIFIED,
                 persistent = false,
                 generation = 7,
             ),
@@ -149,7 +149,7 @@ class TweaksJournalTest {
         val result = JournalRollback.rollback(
             items,
             execute = { 0 },
-            readVerified = { null },
+            readVerified = { "null" },
         )
         assertTrue(result.success)
         assertTrue(result.remaining.isEmpty())
@@ -162,14 +162,14 @@ class TweaksJournalTest {
             original = null,
             restoreCmd = "cmd deviceidle unforce 2>/dev/null",
             verifyCmd = null,
-            verifyMode = JournalVerifyMode.EXIT,
+            verifyMode = JournalVerifyMode.UNVERIFIED,
             persistent = true,
             generation = 7,
         )
         val result = JournalRollback.rollback(
             listOf(item),
             execute = { 0 },
-            readVerified = { throw AssertionError("verify must not be consulted in EXIT mode") },
+            readVerified = { throw AssertionError("verify must not be consulted in UNVERIFIED mode") },
         )
         assertTrue(result.success)
     }
