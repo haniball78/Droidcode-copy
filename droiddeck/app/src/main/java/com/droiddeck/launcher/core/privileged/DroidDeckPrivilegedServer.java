@@ -52,7 +52,7 @@ public class DroidDeckPrivilegedServer {
                     } catch (InterruptedException e) {
                         return;
                     }
-                    if (deadmanArmed && System.currentTimeMillis() - deadmanLastBeatMs > DEADMAN_WATCHDOG_MS) {
+                    if (deadmanArmed && android.os.SystemClock.elapsedRealtime() - deadmanLastBeatMs > DEADMAN_WATCHDOG_MS) {
                         deadmanArmed = false;
                         deadmanExpired = true;
                         watchdogRestore();
@@ -112,13 +112,13 @@ public class DroidDeckPrivilegedServer {
                     if (line.equals("ARM")) {
                         deadmanArmed = true;
                         deadmanExpired = false;
-                        deadmanLastBeatMs = System.currentTimeMillis();
+                        deadmanLastBeatMs = android.os.SystemClock.elapsedRealtime();
                         writer.println("OK");
                     } else if (line.equals("BEAT")) {
                         if (deadmanExpired || !deadmanArmed) {
                             writer.println("EXPIRED");
                         } else {
-                            deadmanLastBeatMs = System.currentTimeMillis();
+                            deadmanLastBeatMs = android.os.SystemClock.elapsedRealtime();
                             writer.println("OK");
                         }
                     } else {
