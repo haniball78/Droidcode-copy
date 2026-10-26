@@ -169,6 +169,9 @@ class SessionService : Service() {
         updateSuspendPolicy()
     }
     @Volatile private var sessionGen = 0
+    private var safetyMonitor: SafetyMonitor? = null
+    private var lastStoppedGen = 0
+    private var lastStoppedStatus = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -220,7 +223,21 @@ class SessionService : Service() {
             }
             ACTION_STOP -> {
                 Log.i(TAG, "stop requested from the notification")
+                SessionExit.beginTeardown()
                 stopSession(0)
+                return START_NOT_STICKY
+            }
+            ACTION_RETRY_RESTORE -> {
+                Log.i(TAG, "restore retry requested")
+                if (SessionExit.retryRestore()) {
+                    Thread({
+                        if (restoreInTeardown(lastStoppedGen)) finishSessionStop(lastStoppedStatus, lastStoppedGen)
+                    }, "session-restore-retry").start()
+                }
+                return START_NOT_STICKY
+            }
+            ACTION_CANCEL_SAFETY_COUNTDOWN -> {
+                safetyMonitor?.cancelCountdown()
                 return START_NOT_STICKY
             }
             ACTION_PIP_BEGIN -> {
@@ -618,6 +635,7 @@ class SessionService : Service() {
                 com.droiddeck.launcher.core.privileged.GameModeEngine.boostSessionProcess(this, pid, gen)
                 com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.start(this, gen, pid)
             }
+            startSafetyMonitor()
         } else {
             SessionEvents.record("guest.start_failed", mapOf("pid" to pid))
             SessionEvents.fail("GUEST_START_FAILED", "The guest process could not be started", pid)
@@ -1634,6 +1652,115 @@ class SessionService : Service() {
         }
     }
 
+    private fun startSafetyMonitor() {
+        val appContext = applicationContext
+        safetyMonitor?.stop()
+        safetyMonitor = SafetyMonitor(
+            batterySource = SafetySources.battery(appContext),
+            thermalSource = SafetySources.thermal(appContext),
+            bridgeProbe = SafetySources.bridge(),
+            clock = SafetySources.systemClock(),
+            thresholds = SafetyThresholds(
+                warnLevel = SessionPrefs.safetyWarnLevel(appContext),
+                tweaksLevel = SessionPrefs.safetyTweaksLevel(appContext),
+                emergencyLevel = SessionPrefs.safetyEmergencyLevel(appContext),
+            ),
+            countdownSeconds = SessionPrefs.safetyCountdownSeconds(appContext),
+            listener = object : SafetyListener {
+                override fun onWarnBattery(levelPercent: Int) {
+                    postSafetyNotification("Battery at $levelPercent%: tweaks will end at 10%.")
+                }
+                override fun onEndTweaks(reason: String) {
+                    endTweaksNow()
+                }
+                override fun onStopCountdownTick(secondsLeft: Int) {
+                    postSafetyNotification("Stopping the game in $secondsLeft s unless cancelled.")
+                }
+                override fun onStopCountdownFinished() {
+                    SessionExit.request(this@SessionService, ExitReason.SAFETY)
+                }
+                override fun onBridgeLost() {
+                    com.droiddeck.launcher.core.privileged.RecoveryCoordinator.attemptAsync(appContext)
+                    postSafetyNotification("Privileged bridge lost: restoring system settings.")
+                }
+                override fun onAlert(message: String) {
+                    SessionEvents.record("session.safety_alert", mapOf("message" to message))
+                    Log.w(TAG, "safety alert: $message")
+                }
+            },
+        )
+        safetyMonitor?.setTweaksActive(com.droiddeck.launcher.core.privileged.GameModeEngine.isActive())
+        safetyMonitor?.start()
+    }
+
+    private fun endTweaksNow() {
+        com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
+        com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, sessionGen)
+        com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, sessionGen)
+        safetyMonitor?.setTweaksActive(false)
+    }
+
+    private fun restoreInTeardown(stoppedGen: Int): Boolean {
+        SessionExit.beginRestore()
+        val deadlineMs = 15000L
+        var ok = false
+        val worker = Thread({
+            ok = try {
+                val gameOk = com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, stoppedGen)
+                val freezerOk = com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, stoppedGen)
+                gameOk && freezerOk
+            } catch (t: Throwable) {
+                Log.w(TAG, "teardown restore", t)
+                false
+            }
+        }, "session-teardown-restore")
+        worker.start()
+        worker.join(deadlineMs)
+        if (worker.isAlive) {
+            worker.interrupt()
+            ok = false
+        }
+        if (ok) {
+            SessionExit.restoreSucceeded()
+            SessionEvents.record("session.restore_ok", mapOf("gen" to stoppedGen))
+        } else {
+            SessionExit.restoreFailed()
+            SessionEvents.record("session.restore_failed", mapOf("gen" to stoppedGen))
+            Log.w(TAG, "teardown restore failed, session not finished, journal kept for retry")
+        }
+        return ok
+    }
+
+    private fun postSafetyNotification(text: String) {
+        try {
+            val manager = getSystemService(NotificationManager::class.java) ?: return
+            val channel = NotificationChannel(SAFETY_CHANNEL_ID, getString(R.string.app_name),
+                NotificationManager.IMPORTANCE_HIGH)
+            manager.createNotificationChannel(channel)
+            val open = PendingIntent.getActivity(
+                this, 0,
+                Intent(this, SessionActivity::class.java)
+                    .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+                PendingIntent.FLAG_IMMUTABLE,
+            )
+            val cancel = PendingIntent.getService(
+                this, 4, Intent(this, SessionService::class.java).setAction(ACTION_CANCEL_SAFETY_COUNTDOWN),
+                PendingIntent.FLAG_IMMUTABLE,
+            )
+            val notification = Notification.Builder(this, SAFETY_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_session)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText(text)
+                .setContentIntent(open)
+                .addAction(Notification.Action.Builder(null, "Cancel countdown", cancel).build())
+                .setAutoCancel(true)
+                .build()
+            manager.notify(SAFETY_NOTIFICATION_ID, notification)
+        } catch (t: Throwable) {
+            Log.w(TAG, "safety notification", t)
+        }
+    }
+
     private fun raiseTracer(pid: Int, gen: Int) {
         Thread({
             try {
@@ -1675,11 +1802,14 @@ class SessionService : Service() {
         val launcherEnded = SessionState.mode == MODE_STEAM || SessionState.mode == MODE_DESKTOP || SessionState.program == NoSteamLaunch.EPIC
         SessionState.stopRequested = false
         SessionEvents.record("guest.exited", mapOf("status" to status))
+        safetyMonitor?.stop()
+        safetyMonitor = null
+        SessionExit.beginTeardown()
         GpuClockPin.stop(this)
         GameThreadHints.stop()
         com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
-        com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, sessionGen)
-        com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, sessionGen)
+        lastStoppedGen = sessionGen
+        lastStoppedStatus = status
         SessionEvents.transition(SessionPhase.STOPPING, "session.stopping", mapOf("status" to status))
         suspendOperationPending = false
         freezePending = false
@@ -1719,14 +1849,18 @@ class SessionService : Service() {
                     auxiliary.forEach { (pid, started) -> teardown(pid, started) }
                     if (prootPid > 1) teardown(prootPid)
                     killGuestLeftovers()
-                    finishSessionStop(status, stoppedGen)
-                    if (launcherEnded) importLauncherGames()
+                    if (restoreInTeardown(stoppedGen)) {
+                        finishSessionStop(status, stoppedGen)
+                        if (launcherEnded) importLauncherGames()
+                    }
                 }, "session-teardown").start()
             } else {
                 Thread({
                     com.droiddeck.launcher.stores.gog.GogComet.end(stoppedSession)
-                    finishSessionStop(status, stoppedGen)
-                    if (launcherEnded) importLauncherGames()
+                    if (restoreInTeardown(stoppedGen)) {
+                        finishSessionStop(status, stoppedGen)
+                        if (launcherEnded) importLauncherGames()
+                    }
                 }, "gog-session-stop").start()
             }
         }
@@ -1747,16 +1881,18 @@ class SessionService : Service() {
             return
         }
         Log.i(TAG, "task removed - ending the session")
+        SessionExit.beginDirect(ExitReason.TASK_REMOVED)
         stopSession(0)
         super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
-        stopSession(0)
+        if (SessionState.running) {
+            SessionExit.beginDirect(ExitReason.SERVICE_DESTROYED)
+            stopSession(0)
+        }
         GameThreadHints.stop() // also when the session never got as far as running
         com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
-        com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, sessionGen)
-        com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, sessionGen)
         if (screenReceiverRegistered) {
             unregisterReceiver(screenReceiver)
             screenReceiverRegistered = false
@@ -1960,8 +2096,12 @@ class SessionService : Service() {
                 context.getExternalFilesDir(null)?.let { File(it, ENV_SWITCH_NAME) }
             else null
         private const val CHANNEL_ID = "session"
+        private const val SAFETY_CHANNEL_ID = "session-safety"
+        private const val SAFETY_NOTIFICATION_ID = 1002
         private const val NOTIFICATION_ID = 1001
         const val ACTION_STOP = "com.droiddeck.launcher.STOP_SESSION"
+        private const val ACTION_RETRY_RESTORE = "com.droiddeck.launcher.RETRY_RESTORE"
+        private const val ACTION_CANCEL_SAFETY_COUNTDOWN = "com.droiddeck.launcher.CANCEL_SAFETY_COUNTDOWN"
         const val ACTION_RESUME = "com.droiddeck.launcher.RESUME_SESSION"
         const val ACTION_SUSPEND_NOW = "com.droiddeck.launcher.SUSPEND_NOW"
         private const val ACTION_PIP_BEGIN = "com.droiddeck.launcher.PIP_BEGIN"
