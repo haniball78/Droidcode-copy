@@ -163,13 +163,10 @@ object AppFreezerEngine {
             return "freezer: aborted (session cancelled)"
         }
 
-        // 2. Build consolidated high-speed shell script
         val batchScript = buildString {
-            // Deep Doze
             if (SessionPrefs.deepSystemDoze(context)) {
-                append("dumpsys deviceidle whitelist +$pkgName 2>/dev/null; cmd deviceidle force-idle deep 2>/dev/null; ")
+                append("cmd deviceidle force-idle deep 2>/dev/null; ")
             }
-            // Batch package suspension in single execution
             if (uniqueTargets.isNotEmpty()) {
                 uniqueTargets.chunked(50).forEach { chunk ->
                     append("cmd package suspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
@@ -177,18 +174,22 @@ object AppFreezerEngine {
             }
         }
 
-        // 3. Persist marker BEFORE execution for 100% crash safety
-        if (uniqueTargets.isNotEmpty()) {
-            saveMarker(context, uniqueTargets)
+        val existing = loadMarkerData(context)
+        val mergedTargets = (existing?.first.orEmpty() + uniqueTargets).distinct()
+        val mergedDoze = existing?.second == true || SessionPrefs.deepSystemDoze(context)
+        if (mergedTargets.isNotEmpty() || mergedDoze) {
+            saveMarkerData(context, mergedTargets, mergedDoze)
             suspendedPackages.clear()
-            suspendedPackages.addAll(uniqueTargets)
-            results.add("suspended=${uniqueTargets.size}")
+            suspendedPackages.addAll(mergedTargets)
+            results.add("suspended=${mergedTargets.size}")
         }
 
         if (SessionPrefs.deepSystemDoze(context)) {
             dozeForced = true
             results.add("deep_doze_forced")
         }
+
+        PrivilegedBridge.ensureBackgroundProtection(context)
 
         // 4. Single-roundtrip privileged execution
         if (batchScript.isNotEmpty()) {
@@ -207,17 +208,16 @@ object AppFreezerEngine {
      * Idempotent, safe, and instantaneous.
      */
     @Synchronized
-    fun restore(context: Context, sessionGen: Int = 0) {
-        activeGen.set(0) // Invalidate any in-flight apply
-        if (!applied && !dozeForced && !hasMarker(context)) return
-        applied = false
+    fun restore(context: Context, sessionGen: Int = 0): Boolean {
+        activeGen.set(0)
+        if (!applied && !dozeForced && !hasMarker(context)) return true
+        val marker = loadMarkerData(context)
+        val targets = marker?.first?.ifEmpty { suspendedPackages } ?: suspendedPackages
+        val restoreDoze = dozeForced || marker?.second == true
         Log.i(TAG, "app freezer: restoring suspended packages and system doze (gen=$sessionGen)...")
 
-        val targets = loadMarker(context).ifEmpty { suspendedPackages }
-
-        // Build consolidated restore script
         val restoreScript = buildString {
-            if (dozeForced) {
+            if (restoreDoze) {
                 append("cmd deviceidle unforce 2>/dev/null; ")
             }
             if (targets.isNotEmpty()) {
@@ -228,13 +228,19 @@ object AppFreezerEngine {
         }
 
         if (restoreScript.isNotEmpty()) {
-            exec(context, restoreScript)
+            val result = execChecked(context, restoreScript)
+            if (result.exitCode != 0) {
+                Log.w(TAG, "app freezer: restore failed, marker kept for retry (exit=${result.exitCode})")
+                return false
+            }
         }
 
+        applied = false
         dozeForced = false
         suspendedPackages.clear()
         deleteMarker(context)
         Log.i(TAG, "app freezer: OFF (all apps restored cleanly)")
+        return true
     }
 
     /**
@@ -246,7 +252,7 @@ object AppFreezerEngine {
         Thread({
             try {
                 Log.w(TAG, "clearLeftover: found leftover suspended packages, restoring...")
-                val targets = loadMarker(context)
+                val (targets, _) = loadMarkerData(context) ?: return@Thread
                 val script = buildString {
                     append("cmd deviceidle unforce 2>/dev/null; ")
                     if (targets.isNotEmpty()) {
@@ -255,7 +261,11 @@ object AppFreezerEngine {
                         }
                     }
                 }
-                exec(context, script)
+                val result = execChecked(context, script)
+                if (result.exitCode != 0) {
+                    Log.w(TAG, "clearLeftover: restore failed, marker kept for retry")
+                    return@Thread
+                }
                 deleteMarker(context)
                 Log.i(TAG, "clearLeftover: all leftover packages unsuspended successfully")
             } catch (t: Throwable) {
@@ -313,17 +323,17 @@ object AppFreezerEngine {
         return set
     }
 
-    private fun saveMarker(context: Context, list: List<String>) {
+    private fun saveMarkerData(context: Context, list: List<String>, dozeForced: Boolean) {
         try {
-            File(context.filesDir, MARKER_FILE).writeText(list.joinToString("\n"))
+            File(context.filesDir, MARKER_FILE).writeText(SafetyChecks.encodeFreezerMarker(list, dozeForced))
         } catch (_: Exception) {}
     }
 
-    private fun loadMarker(context: Context): List<String> {
+    private fun loadMarkerData(context: Context): Pair<List<String>, Boolean>? {
         return try {
             val f = File(context.filesDir, MARKER_FILE)
-            if (f.exists()) f.readLines().map { it.trim() }.filter { it.isNotEmpty() } else emptyList()
-        } catch (_: Exception) { emptyList() }
+            if (f.exists()) SafetyChecks.decodeFreezerMarker(f.readText()) else null
+        } catch (_: Exception) { null }
     }
 
     private fun hasMarker(context: Context): Boolean = File(context.filesDir, MARKER_FILE).exists()
@@ -333,9 +343,22 @@ object AppFreezerEngine {
     }
 
     private fun exec(context: Context, cmd: String): String {
-        return try { PrivilegedBridge.execute(cmd).output } catch (t: Throwable) {
+        return try {
+            PrivilegedBridge.ensureSessionToken(context)
+            PrivilegedBridge.execute(cmd).output
+        } catch (t: Throwable) {
             Log.w(TAG, "exec error: $cmd", t)
             ""
+        }
+    }
+
+    private fun execChecked(context: Context, cmd: String): PrivilegedResult {
+        return try {
+            PrivilegedBridge.ensureSessionToken(context)
+            PrivilegedBridge.executeChecked(cmd, PrivilegedBridge.DEFAULT_TIMEOUT_MS)
+        } catch (t: Throwable) {
+            Log.w(TAG, "execChecked error: $cmd", t)
+            PrivilegedResult(-1, "", PrivilegedMode.NONE)
         }
     }
 }
