@@ -261,6 +261,10 @@ object Tweaks {
         return load(context)?.any { it.key == key } == true
     }
 
+    fun journalSnapshot(context: Context): List<JournalItem> {
+        return load(context) ?: emptyList()
+    }
+
     fun recordItems(context: Context, items: List<JournalItem>): Boolean {
         if (items.isEmpty()) return true
         for (item in items) {
