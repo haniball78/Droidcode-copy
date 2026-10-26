@@ -175,6 +175,17 @@ class SessionService : Service() {
     }
     @Volatile private var sessionGen = 0
     private var safetyMonitor: SafetyMonitor? = null
+    @Volatile private var deadManRunning = false
+    private var deadManThread: Thread? = null
+    private var shutdownReceiverRegistered = false
+    private val shutdownReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != Intent.ACTION_SHUTDOWN) return
+            com.droiddeck.launcher.core.privileged.ShutdownRestore.handle(
+                context?.applicationContext ?: return, goAsync()
+            )
+        }
+    }
     private var lastStoppedGen = 0
     private var lastStoppedStatus = 0
 
@@ -186,6 +197,8 @@ class SessionService : Service() {
             addAction(Intent.ACTION_SCREEN_ON)
         })
         screenReceiverRegistered = true
+        registerReceiver(shutdownReceiver, IntentFilter(Intent.ACTION_SHUTDOWN))
+        shutdownReceiverRegistered = true
         (getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)?.let {
             it.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
             displayListenerRegistered = true
@@ -660,6 +673,7 @@ class SessionService : Service() {
                 com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.start(this, gen, pid)
             }
             startSafetyMonitor()
+            startDeadMan()
         } else {
             SessionEvents.record("guest.start_failed", mapOf("pid" to pid))
             SessionEvents.fail("GUEST_START_FAILED", "The guest process could not be started", pid)
@@ -1686,6 +1700,7 @@ class SessionService : Service() {
     }
 
     private fun finishSessionStop(status: Int, stoppedGen: Int) {
+        stopDeadMan()
         mainHandler.post {
             if (stoppedGen != sessionGen || SessionState.running) {
                 Log.i(TAG, "session $stoppedGen finished stopping after a new one started")
@@ -1722,6 +1737,46 @@ class SessionService : Service() {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
+    }
+
+    private fun startDeadMan() {
+        if (deadManRunning) return
+        if (!com.droiddeck.launcher.core.privileged.PrivilegedBridge.armDeadMan(this)) {
+            Log.w(TAG, "dead-man arm failed, daemon-only watchdog unavailable")
+            return
+        }
+        deadManRunning = true
+        deadManThread = Thread({
+            var warned = false
+            while (deadManRunning) {
+                try {
+                    Thread.sleep(com.droiddeck.launcher.core.privileged.DeadMan.BEAT_INTERVAL_MS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return@Thread
+                }
+                if (!deadManRunning) return@Thread
+                if (!com.droiddeck.launcher.core.privileged.PrivilegedBridge.beatDeadMan()) {
+                    if (!warned) {
+                        warned = true
+                        Log.w(TAG, "dead-man beat rejected, watchdog may fire")
+                    }
+                } else {
+                    warned = false
+                }
+            }
+        }, "dead-man-beat").apply { start() }
+    }
+
+    private fun stopDeadMan() {
+        deadManRunning = false
+        deadManThread?.interrupt()
+        deadManThread = null
+        Thread({
+            runCatching {
+                com.droiddeck.launcher.core.privileged.PrivilegedBridge.disarmDeadMan()
+            }
+        }, "dead-man-disarm").start()
     }
 
     private fun startSafetyMonitor() {
@@ -2129,6 +2184,11 @@ class SessionService : Service() {
         }
         GameThreadHints.stop() // also when the session never got as far as running
         com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
+        stopDeadMan()
+        if (shutdownReceiverRegistered) {
+            unregisterReceiver(shutdownReceiver)
+            shutdownReceiverRegistered = false
+        }
         if (screenReceiverRegistered) {
             unregisterReceiver(screenReceiver)
             screenReceiverRegistered = false
