@@ -67,8 +67,8 @@ class BatchDVerifyTest {
             execute = { cmd ->
                 when (cmd) {
                     "settings put global background_process_limit 8" -> state["background_process_limit"] = "8"
-                    "cmd power set-fixed-performance-mode-enabled true" -> state["fixed-performance"] = "true"
-                    "cmd power set-fixed-performance-mode-enabled false" -> state["fixed-performance"] = "false"
+                    "cmd power set-fixed-performance-mode-enabled true 2>/dev/null" -> state["fixed-performance"] = "true"
+                    "cmd power set-fixed-performance-mode-enabled false 2>/dev/null" -> state["fixed-performance"] = "false"
                     "settings put global adaptive_battery_management_enabled 1" -> state["adaptive_battery_management_enabled"] = "1"
                 }
                 0
