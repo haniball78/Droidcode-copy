@@ -476,6 +476,14 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("advancedMasterEnabled", on).apply()
     }
 
+    fun phantomDisableEnabled(context: Context): Boolean = prefs(context).getBoolean("phantomDisableEnabled", true)
+
+    fun setPhantomDisableEnabled(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("phantomDisableEnabled", on).apply()
+    }
+
+    fun phantomDisablePreferenceSet(context: Context): Boolean = prefs(context).contains("phantomDisableEnabled")
+
     /** Game Mode Engine — privileged low-overhead performance governor and RAM trimmer. */
     fun gameModeEngine(context: Context): Boolean = prefs(context).getBoolean("gameModeEngine", true)
 
