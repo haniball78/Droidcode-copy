@@ -100,6 +100,16 @@ object GameModeEngine {
             items.add(settingItem("background_process_limit", resolvedBg.original, sessionGen))
         }
         if (aggressive) {
+            if (!Tweaks.hasKey(context, "fixed-performance")) {
+                val read = execChecked(context, "cmd power get-fixed-performance-mode-enabled")
+                val original = if (read.exitCode == 0) FixedPerformanceState.parse(read.output) else null
+                if (original == null) {
+                    Log.w(TAG, "apply aborted: fixed-performance original unreadable")
+                    aggressiveActive = false
+                    return "game mode: aborted (fixed-performance original unreadable)"
+                }
+                items.add(FixedPerformanceState.item(original, sessionGen))
+            }
             if (!Tweaks.hasKey(context, "sem_enhanced_cpu_responsiveness")) {
                 items.add(settingItem("sem_enhanced_cpu_responsiveness", Preflight.resolveSettingOriginal(exec(context, "settings get global sem_enhanced_cpu_responsiveness")), sessionGen))
             }
@@ -233,13 +243,17 @@ object GameModeEngine {
                 return false
             }
         }
+        val hadFixedItem = Tweaks.journalSnapshot(context).any { it.key == "fixed-performance" }
         val rolledBack = Tweaks.rollback(context)
         val pkg = context.packageName
-        exec(context, "cmd game reset $pkg 2>/dev/null || cmd game mode 1 $pkg 2>/dev/null; cmd power set-fixed-performance-mode-enabled false 2>/dev/null; ")
+        exec(context, "cmd game reset $pkg 2>/dev/null || cmd game mode 1 $pkg 2>/dev/null; ")
         if (!rolledBack) {
             Log.w(TAG, "game mode: restore not verified, journal kept for retry")
             aggressiveActive = wasAggressive
             return false
+        }
+        if (!hadFixedItem) {
+            exec(context, "cmd power set-fixed-performance-mode-enabled false 2>/dev/null; ")
         }
         if (legacy != null) deleteLegacyMarker(context)
         aggressiveActive = false
