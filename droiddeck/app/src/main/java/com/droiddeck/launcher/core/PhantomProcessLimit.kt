@@ -58,7 +58,7 @@ object PhantomProcessLimit {
     fun read(context: Context, sdk: Int = Build.VERSION.SDK_INT): PhantomProcessStatus {
         if (sdk < Build.VERSION_CODES.S) return PhantomProcessStatus.NOT_APPLICABLE
         if (com.droiddeck.launcher.core.privileged.PrivilegedBridge.isPrivilegedAvailable()) {
-            com.droiddeck.launcher.core.privileged.PrivilegedBridge.disablePhantomProcesses()
+            com.droiddeck.launcher.core.privileged.PrivilegedBridge.disablePhantomProcesses(context)
         }
         if (usesDeviceConfig(sdk)) {
             val off = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PREF_ANDROID_12_OFF, false)
