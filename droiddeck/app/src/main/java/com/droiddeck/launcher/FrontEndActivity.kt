@@ -757,6 +757,7 @@ class FrontEndActivity : ComponentActivity() {
         Thread {
             com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh()
             com.droiddeck.launcher.core.privileged.PrivilegedBridge.tryAutoStart(applicationContext)
+            com.droiddeck.launcher.core.privileged.RecoveryCoordinator.attemptOnBridgeReady(applicationContext)
         }.start()
         theme = SessionPrefs.theme(this)
         frameGenLabel = getString(R.string.frame_gen_off)
