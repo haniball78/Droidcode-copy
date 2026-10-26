@@ -248,33 +248,9 @@ object GameModeEngine {
         return true
     }
 
-    /**
-     * Ensures any leftover settings from a crashed session or abrupt power loss are
-     * restored to defaults on next app startup.
-     */
-    fun clearLeftover(context: Context) {
-        if (!Tweaks.recoveryNeeded(context) && !hasLegacyMarker(context)) return
-        val appContext = context.applicationContext
-        Thread({
-            try {
-                Log.w(TAG, "clearLeftover: found leftover game mode state, restoring defaults...")
-                val legacy = loadLegacyMarker(appContext)
-                if (legacy != null && !Tweaks.recordItems(appContext, legacyItems(legacy, 0))) {
-                    Log.w(TAG, "clearLeftover: restore not verified, journal kept for retry")
-                    return@Thread
-                }
-                if (!Tweaks.rollback(appContext)) {
-                    Log.w(TAG, "clearLeftover: restore not verified, journal kept for retry")
-                    return@Thread
-                }
-                val pkg = appContext.packageName
-                exec(appContext, "cmd game reset $pkg 2>/dev/null || cmd game mode 1 $pkg 2>/dev/null; cmd power set-fixed-performance-mode-enabled false 2>/dev/null; ")
-                if (legacy != null) deleteLegacyMarker(appContext)
-                Log.i(TAG, "clearLeftover: game mode leftover settings cleaned successfully")
-            } catch (t: Throwable) {
-                Log.e(TAG, "clearLeftover error", t)
-            }
-        }, "gamemode-clear-leftover").start()
+    fun migrateLegacyToJournal(context: Context): Boolean {
+        val legacy = loadLegacyMarker(context.applicationContext) ?: return true
+        return Tweaks.recordItems(context.applicationContext, legacyItems(legacy, 0))
     }
 
     fun isActive(): Boolean = applied
@@ -354,9 +330,9 @@ object GameModeEngine {
         } catch (_: Exception) { null }
     }
 
-    private fun hasLegacyMarker(context: Context): Boolean = File(context.filesDir, MARKER_FILE).exists()
+    fun hasLegacyMarker(context: Context): Boolean = File(context.filesDir, MARKER_FILE).exists()
 
-    private fun deleteLegacyMarker(context: Context) {
+    fun deleteLegacyMarker(context: Context) {
         try { File(context.filesDir, MARKER_FILE).delete() } catch (_: Exception) {}
     }
 
