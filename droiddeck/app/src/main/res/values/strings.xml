@@ -805,6 +805,15 @@
     <string name="setup_use_wireless">Use Wireless debugging</string>
     <string name="setup_check_again">Check again</string>
     <string name="setup_limit_turn_on">Turn limit on</string>
+    <string name="phantom_card_title">Child-process limit (phantom processes)</string>
+    <string name="phantom_card_toggle">Disable the child-process limit</string>
+    <string name="phantom_card_short">Android kills apps that create too many child processes. DroidDeck sessions create many, so Android may close a session without warning. This change is system-wide and permanent: it affects all apps and stays after sessions end, until you turn it back on.</string>
+    <string name="phantom_card_learn_more">Learn more</string>
+    <string name="phantom_card_learn_more_text">Battery: background apps can keep child processes running and use more battery. Performance and memory: extra processes use RAM, and Android may kill other apps to make room. Stability: an app that spawns processes without stopping is no longer stopped at a limit. Security: this limit is only one small layer — it stops apps from dodging background restrictions, not a main protection — so the risk is bounded, and you chose this setting yourself. To undo it, turn the switch off or tap “Re-enable phantom process killer”; the original limits are restored immediately.</string>
+    <string name="phantom_card_reenable">Re-enable phantom process killer</string>
+    <string name="phantom_card_disabled">Phantom process killer disabled.</string>
+    <string name="phantom_card_reenabled">Phantom process killer re-enabled.</string>
+    <string name="phantom_card_not_applicable">This Android version does not use this limit, so this switch does nothing here.</string>
     <string name="setup_account">Steam account</string>
     <string name="setup_signed_in_offline">Signed in as %1$s · offline mode</string>
     <string name="setup_signed_in">Signed in as %1$s</string>
