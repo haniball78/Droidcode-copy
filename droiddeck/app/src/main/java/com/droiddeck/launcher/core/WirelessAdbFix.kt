@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import com.droiddeck.launcher.R
+import com.droiddeck.launcher.session.SessionPrefs
 import com.flyfishxu.kadb.Kadb
 import com.flyfishxu.kadb.cert.KadbCert
 import java.io.File
@@ -208,7 +209,9 @@ object WirelessAdbFix {
         loadOrCreateIdentity(context.applicationContext)
         val starterCmd = com.droiddeck.launcher.core.privileged.PrivilegedBridge.getStarterAdbCommand(context)
         Kadb.create(host, port).use { adb ->
-            adb.shell("device_config set_sync_disabled_for_tests persistent && device_config put activity_manager max_phantom_processes 2147483647 && settings put global settings_enable_monitor_phantom_procs false")
+            if (SessionPrefs.phantomDisableEnabled(context)) {
+                adb.shell("device_config set_sync_disabled_for_tests persistent && device_config put activity_manager max_phantom_processes 2147483647 && settings put global settings_enable_monitor_phantom_procs false")
+            }
             adb.shell("pm grant ${context.packageName} android.permission.WRITE_SECURE_SETTINGS 2>/dev/null || true")
             adb.shell("pm grant ${context.packageName} android.permission.DUMP 2>/dev/null || true")
             adb.shell("pm grant ${context.packageName} android.permission.PACKAGE_USAGE_STATS 2>/dev/null || true")
