@@ -61,6 +61,10 @@ object DynamicAdaptiveGovernor {
             Log.i(TAG, "governor: game mode is not active, refusing to write system limits")
             return
         }
+        if (!Tweaks.hasKey(context, "background_process_limit")) {
+            Log.i(TAG, "governor: game mode journal has no background limit, refusing to write system limits")
+            return
+        }
         stop(context) // clean previous if any
 
         activeSessionGen = sessionGen
@@ -190,11 +194,15 @@ object DynamicAdaptiveGovernor {
     }
 
     private fun applyTierAction(context: Context, tier: AdaptiveTier, pid: Int, sessionGen: Int) {
+        val limit = when (tier) {
+            AdaptiveTier.COOLING_RELIEF -> "2"
+            AdaptiveTier.BALANCED_COOL -> "4"
+            AdaptiveTier.HEADROOM_BOOST -> "4"
+        }
+        val limitCmd = "settings put global background_process_limit $limit 2>/dev/null"
         val script = buildString {
             when (tier) {
                 AdaptiveTier.COOLING_RELIEF -> {
-                    // Cap background processes to 2, clean cached RAM, relax nice to -5, strictly pin cores 2-6
-                    append("settings put global background_process_limit 2 2>/dev/null; ")
                     append("am kill-all 2>/dev/null; ")
                     if (pid > 1) {
                         append("renice -n -5 -p $pid 2>/dev/null; ")
@@ -202,16 +210,12 @@ object DynamicAdaptiveGovernor {
                     }
                 }
                 AdaptiveTier.BALANCED_COOL -> {
-                    // Standard cool baseline: background limit 4, nice -10, cores 2-6
-                    append("settings put global background_process_limit 4 2>/dev/null; ")
                     if (pid > 1) {
                         append("renice -n -10 -p $pid 2>/dev/null; ")
                         append("taskset -p 7c $pid 2>/dev/null; ")
                     }
                 }
                 AdaptiveTier.HEADROOM_BOOST -> {
-                    // Priority boost for game threads: nice -14
-                    append("settings put global background_process_limit 4 2>/dev/null; ")
                     if (pid > 1) {
                         append("renice -n -14 -p $pid 2>/dev/null; ")
                     }
@@ -222,9 +226,15 @@ object DynamicAdaptiveGovernor {
         actionThread = Thread({
             try {
                 if (!running || (activeSessionGen != 0 && sessionGen != activeSessionGen)) return@Thread
-                PrivilegedBridge.executeChecked(script, PrivilegedBridge.DEFAULT_TIMEOUT_MS)
+                if (!Tweaks.applyExistingKeyChange(context, "background_process_limit", limitCmd)) {
+                    Log.w(TAG, "applyTierAction refused: game mode journal has no background limit")
+                    return@Thread
+                }
+                if (script.isNotEmpty()) {
+                    PrivilegedBridge.executeChecked(script, PrivilegedBridge.DEFAULT_TIMEOUT_MS)
+                }
             } catch (t: Throwable) {
-                Log.w(TAG, "applyTierAction error: $script", t)
+                Log.w(TAG, "applyTierAction error: $limitCmd", t)
             }
         }, "governor-action").also { it.start() }
     }
