@@ -180,7 +180,7 @@ object DynamicAdaptiveGovernor {
     private fun evaluateState(context: Context, thermalStatus: Int, force: Boolean) {
         if (!running) return
 
-        val now = System.currentTimeMillis()
+        val now = android.os.SystemClock.elapsedRealtime()
         // Minimum hold time: 30 seconds between state transitions to avoid flapping (skipped on initial force evaluation)
         if (!force && lastTransitionTime != 0L && now - lastTransitionTime < 30000) return
 
