@@ -1,7 +1,7 @@
 package com.droiddeck.launcher.session
 
+import com.droiddeck.launcher.core.privileged.AtomicStateFile
 import java.io.File
-import java.io.FileOutputStream
 
 enum class SuspendKind {
     USER,
@@ -133,37 +133,20 @@ object SuspendStore {
     private const val FILE_NAME = "suspended-session.json"
 
     fun save(dir: File, session: SuspendedSession): Boolean {
-        return try {
-            if (!dir.exists()) dir.mkdirs()
-            val file = File(dir, FILE_NAME)
-            val tmp = File(dir, "$FILE_NAME.tmp")
-            FileOutputStream(tmp).use { stream ->
-                stream.write(SuspendCodec.encode(session).toByteArray(Charsets.UTF_8))
-                stream.channel.force(true)
-            }
-            if (file.exists()) file.delete()
-            tmp.renameTo(file)
-        } catch (_: Exception) {
-            false
-        }
+        if (!dir.exists()) dir.mkdirs()
+        return AtomicStateFile.save(File(dir, FILE_NAME), SuspendCodec.encode(session))
     }
 
     fun load(dir: File): SuspendedSession? {
-        return try {
-            val file = File(dir, FILE_NAME)
-            if (!file.exists()) null else SuspendCodec.decode(file.readText())
-        } catch (_: Exception) {
-            null
+        val file = File(dir, FILE_NAME)
+        if (!file.exists() && !AtomicStateFile.bakFile(file).exists() && !AtomicStateFile.tmpFile(file).exists()) {
+            return null
         }
+        return AtomicStateFile.readRecovered(file, SuspendCodec::decode)
     }
 
     fun clear(dir: File): Boolean {
-        return try {
-            val file = File(dir, FILE_NAME)
-            if (!file.exists()) true else file.delete()
-        } catch (_: Exception) {
-            false
-        }
+        return AtomicStateFile.delete(File(dir, FILE_NAME))
     }
 }
 
