@@ -703,7 +703,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                     loading.step, loading.percent, loading.elapsed, loading.hint, loading.ended,
                     topic = loading.topic, readable = loading.readable,
                     title = loadingTitle(), steam = loadingMode() == SessionService.MODE_STEAM,
-                    onCancel = { SessionService.stop(this@SessionActivity); finish() },
+                    onCancel = { if (!com.droiddeck.launcher.session.SessionExit.isExiting()) com.droiddeck.launcher.session.SessionExit.request(this@SessionActivity, com.droiddeck.launcher.session.ExitReason.USER); finish() },
                     endedDetail = loading.endedDetail,
                     onRetry = { retrySession() },
                     onRepair = if (repairOffered) ({ repairRuntime() }) else null,
@@ -959,11 +959,11 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                     onUnfoldedControlsWithController = ::chooseUnfoldedControlsWithController,
                     onBackground = { drawerOpen = false; pip.background(); moveTaskToBack(true) },
                     onShareLogs = { drawerOpen = false; shareCurrentSessionLogs() },
-                    onStop = { drawerOpen = false; SessionService.stop(this@SessionActivity); finish() },
+                    onStop = { drawerOpen = false; if (!com.droiddeck.launcher.session.SessionExit.isExiting()) com.droiddeck.launcher.session.SessionExit.request(this@SessionActivity, com.droiddeck.launcher.session.ExitReason.USER); finish() },
                     onStopFrom = { onScreen ->
                         drawerOpen = false
                         if (onScreen == null || com.droiddeck.launcher.ui.Motion.scale == 0f || quitFrom != null) {
-                            if (quitFrom == null) { SessionService.stop(this@SessionActivity); finish() }
+                            if (quitFrom == null) { if (!com.droiddeck.launcher.session.SessionExit.isExiting()) com.droiddeck.launcher.session.SessionExit.request(this@SessionActivity, com.droiddeck.launcher.session.ExitReason.USER); finish() }
                         } else {
                             val at = IntArray(2).also { sessionOverlay.getLocationOnScreen(it) }
                             quitFrom = onScreen.translate(-at[0].toFloat(), -at[1].toFloat())
@@ -2046,7 +2046,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         }
         if (fromController && event.keyCode == KeyEvent.KEYCODE_BUTTON_B && ::loading.isInitialized && loading.visible && !loading.ended && !drawerOpen) {
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                SessionService.stop(this)
+                if (!com.droiddeck.launcher.session.SessionExit.isExiting()) com.droiddeck.launcher.session.SessionExit.request(this, com.droiddeck.launcher.session.ExitReason.USER)
                 finish()
             }
             return true
@@ -3537,7 +3537,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         com.droiddeck.launcher.ui.QuitFlood.mark(signal.toArgb())
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(signal.toArgb()))
         quitFlooded = true
-        SessionService.stop(this)
+        if (!com.droiddeck.launcher.session.SessionExit.isExiting()) com.droiddeck.launcher.session.SessionExit.request(this, com.droiddeck.launcher.session.ExitReason.USER)
         finish()
     }
 

@@ -617,7 +617,7 @@ class FrontEndActivity : ComponentActivity() {
             switchPoll = null
             switchingTo = null
         }
-        if (SessionState.running) SessionService.stop(this)
+        if (SessionState.running) com.droiddeck.launcher.session.SessionExit.request(this, com.droiddeck.launcher.session.ExitReason.USER)
         val app = applicationContext
         val deadline = android.os.SystemClock.uptimeMillis() + SESSION_SWITCH_WAIT_MS
         Thread({
@@ -695,7 +695,7 @@ class FrontEndActivity : ComponentActivity() {
     }
 
     private fun startAfterSession(next: Intent) {
-        SessionService.stop(this)
+        com.droiddeck.launcher.session.SessionExit.request(this, com.droiddeck.launcher.session.ExitReason.USER)
         awaitSessionEnd(next, android.os.SystemClock.uptimeMillis() + SESSION_SWITCH_WAIT_MS)
     }
 
