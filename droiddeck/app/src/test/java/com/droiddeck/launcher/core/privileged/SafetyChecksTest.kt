@@ -63,6 +63,23 @@ class SafetyChecksTest {
     }
 
     @Test
+    fun parseBackgroundLimitTrimsAndTreatsNullAsAbsent() {
+        assertEquals("8", SafetyChecks.parseBackgroundLimit("  8\n"))
+        assertEquals(null, SafetyChecks.parseBackgroundLimit(""))
+        assertEquals(null, SafetyChecks.parseBackgroundLimit("null"))
+        assertEquals(null, SafetyChecks.parseBackgroundLimit("  null  "))
+    }
+
+    @Test
+    fun freezerMarkerWithoutDozeDecodesAsDozeFalse() {
+        val encoded = SafetyChecks.encodeFreezerMarker(listOf("com.example.a"), false)
+        val (packages, doze) = SafetyChecks.decodeFreezerMarker(encoded)
+        assertEquals(listOf("com.example.a"), packages)
+        assertFalse(doze)
+        assertFalse(SafetyChecks.isDozeMarker(encoded))
+    }
+
+    @Test
     fun freezerMarkerRoundTripsPackagesAndDoze() {
         val encoded = SafetyChecks.encodeFreezerMarker(listOf("com.example.a", "com.example.b"), true)
         val (packages, doze) = SafetyChecks.decodeFreezerMarker(encoded)
