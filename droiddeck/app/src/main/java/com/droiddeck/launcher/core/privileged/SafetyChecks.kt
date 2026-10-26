@@ -81,3 +81,23 @@ internal object SafetyChecks {
         return lines.filter { it != "#DOZE" } to lines.any { it == "#DOZE" }
     }
 }
+
+data class ResolvedOriginal(
+    val original: String?,
+    val leftoverDetected: Boolean,
+)
+
+internal object Preflight {
+    fun resolveBackgroundLimitOriginal(rawOutput: String): ResolvedOriginal {
+        val parsed = SafetyChecks.parseBackgroundLimit(rawOutput)
+        return if (parsed != null && !SafetyChecks.isCleanBackgroundLimit(parsed)) {
+            ResolvedOriginal(null, true)
+        } else {
+            ResolvedOriginal(parsed, false)
+        }
+    }
+
+    fun resolveSettingOriginal(rawOutput: String): String? {
+        return SafetyChecks.parseBackgroundLimit(rawOutput)
+    }
+}
