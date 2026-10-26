@@ -190,6 +190,20 @@ object PrivilegedBridge {
         else execute(cmd).exitCode == 0
     }
 
+    fun armDeadMan(context: Context): Boolean {
+        ensureSessionToken(context)
+        return deadManAction("ARM")
+    }
+
+    fun beatDeadMan(): Boolean = deadManAction("BEAT")
+
+    fun disarmDeadMan(): Boolean = deadManAction("DISARM")
+
+    private fun deadManAction(action: String): Boolean {
+        if (_status.value.mode != PrivilegedMode.EMBEDDED_DAEMON) return false
+        return runEmbeddedAction(action)
+    }
+
     fun boostAndProtectSession(targetPid: Int): Boolean {
         return boostAndProtectSession(targetPid, aggressive = false)
     }
