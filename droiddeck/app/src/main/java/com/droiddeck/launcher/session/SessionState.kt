@@ -47,6 +47,7 @@ object SessionState {
     @Volatile
     var runtimeDriver: String? = null
     var suspended by mutableStateOf(false)
+    var suspendKind by mutableStateOf<SuspendKind?>(null)
     var resumeRequested by mutableStateOf(false)
     var resuming by mutableStateOf(false)
     var resumeFailures by mutableIntStateOf(0)
