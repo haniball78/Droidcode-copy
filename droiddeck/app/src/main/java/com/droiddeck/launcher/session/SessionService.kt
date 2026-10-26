@@ -101,6 +101,11 @@ class SessionService : Service() {
     private var suspendAttemptFailed = false
     private var freezePending = false
     private var freezeCancelled = false
+    private var tweaksEndedForSafety = false
+    private var explicitResumeRequested = false
+    private var resumeWithoutOptimizations = false
+    private var leaveTimer: Runnable? = null
+    private var leaveRestored = false
     private var pendingSteamGameId: String? = null
     private var pendingSteamGameGeneration = -1
     // Bumped to cancel a running game-exit watch (a new launch, or the session ending).
@@ -254,6 +259,7 @@ class SessionService : Service() {
                 resumeSteamSleepOnReturn()
                 suspendAttemptFailed = false
                 updateSuspendPolicy()
+                onReturnFromBackground()
                 return START_NOT_STICKY
             }
             ACTION_ACTIVITY_DISPLAY -> {
@@ -273,6 +279,21 @@ class SessionService : Service() {
                 activityDisplayId = intent.getIntExtra(EXTRA_ACTIVITY_DISPLAY_ID, activityDisplayId)
                 suspendAttemptFailed = false
                 updateSuspendPolicy()
+                onBackgroundHidden()
+                return START_NOT_STICKY
+            }
+            ACTION_RESTORE_AND_STOP -> {
+                Thread({
+                    com.droiddeck.launcher.core.privileged.Tweaks.rollback(this)
+                    com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, sessionGen)
+                    com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, sessionGen)
+                    mainHandler.post { SessionExit.request(this, ExitReason.USER) }
+                }, "session-restore-and-stop").start()
+                return START_NOT_STICKY
+            }
+            ACTION_RESTORE_NOW -> {
+                com.droiddeck.launcher.core.privileged.RecoveryCoordinator.attemptAsync(this)
+                Thread({ postRecoveryNotification() }, "session-recovery-notify").start()
                 return START_NOT_STICKY
             }
             ACTION_XR_ACTIVITY_VISIBLE -> {
@@ -311,6 +332,9 @@ class SessionService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_RESUME -> {
+                resumeWithoutOptimizations =
+                    intent?.getBooleanExtra(EXTRA_RESUME_WITHOUT_OPTIMIZATIONS, false) == true
+                explicitResumeRequested = true
                 resumeSession()
                 return START_NOT_STICKY
             }
@@ -1498,9 +1522,25 @@ class SessionService : Service() {
                     freezePending = false
                     if (success) {
                         SessionState.suspended = true
+                        SessionState.suspendKind =
+                            if (tweaksEndedForSafety) SuspendKind.SAFETY else SuspendKind.USER
                         SessionState.resumeFailed = false
                         SessionEvents.transition(SessionPhase.SUSPENDED, "session.suspended")
                         releaseLocks()
+                        cancelLeaveTimer()
+                        val suspendedSession = SuspendedSession(
+                            gen, SessionState.program ?: SessionState.mode,
+                            SessionState.suspendKind ?: SuspendKind.USER,
+                            System.currentTimeMillis(), tweaksEndedForSafety, SessionState.sessionId,
+                        )
+                        Thread({
+                            SuspendStore.save(noBackupFilesDir, suspendedSession)
+                            val rolledBack =
+                                com.droiddeck.launcher.core.privileged.Tweaks.rollback(this)
+                            SessionEvents.record(
+                                "session.suspend_rolled_back", mapOf("ok" to rolledBack),
+                            )
+                        }, "suspend-rollback").start()
                         refreshNotification()
                     } else {
                         if (nativeSleepToken == freezeNativeToken) completeNativeSleep()
@@ -1516,6 +1556,25 @@ class SessionService : Service() {
                 }
             }
         } else {
+            val suspendKind = SessionState.suspendKind ?: SuspendKind.USER
+            val resumeCheck = SuspendPolicy.checkResume(
+                kind = suspendKind,
+                wantsOptimizations = !resumeWithoutOptimizations,
+                bridgeOk = com.droiddeck.launcher.core.privileged.PrivilegedBridge.isPrivilegedAvailable(),
+                batteryLevel = readBatteryLevel(),
+                charging = readBatteryCharging(),
+                thermalStatus = readThermalStatus(),
+                explicitResume = explicitResumeRequested,
+            )
+            if (!resumeCheck.allowed) {
+                explicitResumeRequested = false
+                SessionState.resumeRequested = false
+                SessionEvents.record(
+                    "session.resume_blocked", mapOf("block" to resumeCheck.block, "kind" to suspendKind),
+                )
+                refreshNotification()
+                return
+            }
             acquireLocks()
             SessionState.resuming = true
             controller.resume { success ->
@@ -1524,10 +1583,21 @@ class SessionService : Service() {
                     suspendOperationPending = false
                     SessionState.resuming = false
                     SessionState.resumeRequested = false
+                    val wantOptimizations = !resumeWithoutOptimizations
+                    val resumedKind = suspendKind
+                    explicitResumeRequested = false
+                    resumeWithoutOptimizations = false
                     if (success) {
                         SessionState.suspended = false
+                        SessionState.suspendKind = null
                         SessionState.resumeFailed = false
                         SessionEvents.transition(SessionEvents.resumePhase(), "session.resumed")
+                        SuspendStore.clear(noBackupFilesDir)
+                        if (wantOptimizations) {
+                            Thread({
+                                reapplyTweaksAfterResume(gen, resumedKind)
+                            }, "resume-reapply").start()
+                        }
                         refreshNotification()
                     } else {
                         suspendAttemptFailed = true
@@ -1622,6 +1692,8 @@ class SessionService : Service() {
                 return@post
             }
             SessionState.suspended = false
+            SessionState.suspendKind = null
+            SuspendStore.clear(noBackupFilesDir)
             SessionState.resumeRequested = false
             SessionState.resuming = false
             SessionState.resumeFailed = false
@@ -1694,10 +1766,169 @@ class SessionService : Service() {
     }
 
     private fun endTweaksNow() {
+        tweaksEndedForSafety = true
         com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
         com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, sessionGen)
         com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, sessionGen)
         safetyMonitor?.setTweaksActive(false)
+    }
+
+    private fun readBatteryLevel(): Int? {
+        return try {
+            val sticky = registerReceiver(
+                null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED),
+            )
+            val level = sticky?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale = sticky?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100)?.takeIf { it > 0 } ?: 100
+            if (level < 0) null else level * 100 / scale
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun readBatteryCharging(): Boolean {
+        return try {
+            val sticky = registerReceiver(
+                null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED),
+            )
+            val status = sticky?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
+            status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == android.os.BatteryManager.BATTERY_STATUS_FULL
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun readThermalStatus(): Int {
+        return try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            if (android.os.Build.VERSION.SDK_INT >= 29) pm?.currentThermalStatus ?: 0 else 0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
+    private fun reapplyTweaksAfterResume(gen: Int, kind: SuspendKind) {
+        if (!SessionState.running || SessionState.suspended) return
+        val check = SuspendPolicy.checkResume(
+            kind = kind,
+            wantsOptimizations = true,
+            bridgeOk = com.droiddeck.launcher.core.privileged.PrivilegedBridge.isPrivilegedAvailable(),
+            batteryLevel = readBatteryLevel(),
+            charging = readBatteryCharging(),
+            thermalStatus = readThermalStatus(),
+            explicitResume = true,
+        )
+        if (!check.allowed) {
+            Log.w(TAG, "resume re-apply blocked: ${check.block}")
+            safetyMonitor?.setTweaksActive(false)
+            return
+        }
+        com.droiddeck.launcher.core.privileged.GameModeEngine.apply(this, gen)
+        com.droiddeck.launcher.core.privileged.AppFreezerEngine.apply(this, gen)
+        val pid = SessionState.guestPid.takeIf { it > 1 } ?: sessionPid
+        if (pid > 1) com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.start(this, gen, pid)
+        safetyMonitor?.setTweaksActive(com.droiddeck.launcher.core.privileged.GameModeEngine.isActive())
+        SessionEvents.record("session.tweaks_reapplied", mapOf("gen" to gen))
+    }
+
+    private fun onBackgroundHidden() {
+        if (!SessionState.running || SessionState.suspended || pipTask || xrActivityVisible) return
+        val tweaksActive = com.droiddeck.launcher.core.privileged.GameModeEngine.isActive() ||
+            com.droiddeck.launcher.core.privileged.Tweaks.recoveryNeeded(this)
+        if (!tweaksActive) return
+        cancelLeaveTimer()
+        val timeoutMs = SessionPrefs.safetyLeaveTimeoutSeconds(this).coerceIn(10, 600) * 1000L
+        val runnable = Runnable {
+            if (!SessionState.running || SessionState.suspended || activityVisible || pipTask) return@Runnable
+            if (SessionExit.isExiting()) return@Runnable
+            Thread({
+                com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
+                val gameOk = com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, sessionGen)
+                val freezerOk = com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, sessionGen)
+                if (gameOk && freezerOk) {
+                    leaveRestored = true
+                    safetyMonitor?.setTweaksActive(false)
+                    SessionEvents.record("session.leave_timeout_restored", mapOf("gen" to sessionGen))
+                    refreshNotification()
+                } else {
+                    Log.w(TAG, "leave timeout restore failed, journal kept")
+                }
+            }, "leave-timeout-restore").start()
+        }
+        leaveTimer = runnable
+        mainHandler.postDelayed(runnable, timeoutMs)
+    }
+
+    private fun cancelLeaveTimer() {
+        leaveTimer?.let(mainHandler::removeCallbacks)
+        leaveTimer = null
+    }
+
+    private fun onReturnFromBackground() {
+        cancelLeaveTimer()
+        if (!leaveRestored) return
+        leaveRestored = false
+        if (!SessionState.running || SessionState.suspended) return
+        val reapply = SuspendPolicy.shouldReapplyOnReturn(
+            leaveRestored = true,
+            tweaksEndedForSafety = tweaksEndedForSafety,
+            bridgeOk = com.droiddeck.launcher.core.privileged.PrivilegedBridge.isPrivilegedAvailable(),
+            batteryLevel = readBatteryLevel(),
+            charging = readBatteryCharging(),
+            thermalStatus = readThermalStatus(),
+        )
+        if (!reapply) {
+            Log.w(TAG, "leave return: tweaks stay off after temporary restore")
+            safetyMonitor?.setTweaksActive(false)
+            return
+        }
+        Thread({
+            reapplyTweaksAfterResume(sessionGen, SuspendKind.USER)
+        }, "leave-return-reapply").start()
+    }
+
+    private fun postRecoveryNotification() {
+        try {
+            val snapshot = com.droiddeck.launcher.core.privileged.Tweaks.journalSnapshot(this)
+            val liveLimit = try {
+                com.droiddeck.launcher.core.privileged.PrivilegedBridge.execute(
+                    "settings get global background_process_limit",
+                ).output.trim().takeIf { it.isNotEmpty() } ?: "unknown"
+            } catch (_: Exception) {
+                "unknown"
+            }
+            val text = if (snapshot.isEmpty()) {
+                "System settings already restored."
+            } else {
+                "Restore pending: ${snapshot.size} setting(s); background limit now $liveLimit."
+            }
+            val manager = getSystemService(NotificationManager::class.java) ?: return
+            val channel = NotificationChannel(SAFETY_CHANNEL_ID, getString(R.string.app_name),
+                NotificationManager.IMPORTANCE_HIGH)
+            manager.createNotificationChannel(channel)
+            val open = PendingIntent.getActivity(
+                this, 0,
+                Intent(this, SessionActivity::class.java)
+                    .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+                PendingIntent.FLAG_IMMUTABLE,
+            )
+            val restore = PendingIntent.getService(
+                this, 7, Intent(this, SessionService::class.java).setAction(ACTION_RESTORE_NOW),
+                PendingIntent.FLAG_IMMUTABLE,
+            )
+            val notification = Notification.Builder(this, SAFETY_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_session)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText(text)
+                .setContentIntent(open)
+                .addAction(Notification.Action.Builder(null, "Restore now", restore).build())
+                .setOngoing(true)
+                .build()
+            manager.notify(SAFETY_NOTIFICATION_ID, notification)
+        } catch (t: Throwable) {
+            Log.w(TAG, "recovery notification", t)
+        }
     }
 
     private fun restoreInTeardown(stoppedGen: Int): Boolean {
@@ -1787,6 +2018,11 @@ class SessionService : Service() {
     }
 
     private fun stopSession(status: Int) {
+        cancelLeaveTimer()
+        leaveRestored = false
+        tweaksEndedForSafety = false
+        explicitResumeRequested = false
+        resumeWithoutOptimizations = false
         cancelQueuedSteamGame()
         gameExitWatchToken++
         completeNativeSleep()
@@ -1996,6 +2232,12 @@ class SessionService : Service() {
             .apply {
                 if (SessionState.suspended) {
                     addAction(Notification.Action.Builder(null, getString(R.string.resume_session), resume).build())
+                    val restoreAndStop = PendingIntent.getService(
+                        this@SessionService, 5,
+                        Intent(this@SessionService, SessionService::class.java).setAction(ACTION_RESTORE_AND_STOP),
+                        PendingIntent.FLAG_IMMUTABLE,
+                    )
+                    addAction(Notification.Action.Builder(null, "Restore and stop", restoreAndStop).build())
                 } else if (downloadsKeepAwake()) {
                     val suspend = PendingIntent.getService(
                         this@SessionService, 3,
@@ -2003,6 +2245,16 @@ class SessionService : Service() {
                         PendingIntent.FLAG_IMMUTABLE,
                     )
                     addAction(Notification.Action.Builder(null, getString(R.string.suspend_now), suspend).build())
+                }
+            }
+            .apply {
+                if (com.droiddeck.launcher.core.privileged.Tweaks.recoveryNeeded(this@SessionService)) {
+                    val restoreNow = PendingIntent.getService(
+                        this@SessionService, 6,
+                        Intent(this@SessionService, SessionService::class.java).setAction(ACTION_RESTORE_NOW),
+                        PendingIntent.FLAG_IMMUTABLE,
+                    )
+                    addAction(Notification.Action.Builder(null, "Restore now", restoreNow).build())
                 }
             }
             .addAction(Notification.Action.Builder(null, getString(R.string.stop_session), stop).build())
@@ -2014,6 +2266,9 @@ class SessionService : Service() {
 
     private fun refreshNotification() {
         getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, buildNotification())
+        if (com.droiddeck.launcher.core.privileged.Tweaks.recoveryNeeded(this)) {
+            Thread({ postRecoveryNotification() }, "session-recovery-notify").start()
+        }
     }
 
     private fun downloadsKeepAwake(): Boolean =
@@ -2102,6 +2357,9 @@ class SessionService : Service() {
         const val ACTION_STOP = "com.droiddeck.launcher.STOP_SESSION"
         private const val ACTION_RETRY_RESTORE = "com.droiddeck.launcher.RETRY_RESTORE"
         private const val ACTION_CANCEL_SAFETY_COUNTDOWN = "com.droiddeck.launcher.CANCEL_SAFETY_COUNTDOWN"
+        private const val ACTION_RESTORE_AND_STOP = "com.droiddeck.launcher.RESTORE_AND_STOP"
+        private const val ACTION_RESTORE_NOW = "com.droiddeck.launcher.RESTORE_NOW"
+        private const val EXTRA_RESUME_WITHOUT_OPTIMIZATIONS = "resumeWithoutOptimizations"
         const val ACTION_RESUME = "com.droiddeck.launcher.RESUME_SESSION"
         const val ACTION_SUSPEND_NOW = "com.droiddeck.launcher.SUSPEND_NOW"
         private const val ACTION_PIP_BEGIN = "com.droiddeck.launcher.PIP_BEGIN"
@@ -2220,9 +2478,24 @@ class SessionService : Service() {
         }
 
         fun resume(context: Context) {
+            resumeWithOptimizations(context)
+        }
+
+        fun resumeWithOptimizations(context: Context) {
+            resumeInternal(context, false)
+        }
+
+        fun resumeWithoutOptimizations(context: Context) {
+            resumeInternal(context, true)
+        }
+
+        private fun resumeInternal(context: Context, withoutOptimizations: Boolean) {
             if (!SessionState.running) return
             if (SessionState.suspended) SessionState.resumeRequested = true
-            context.startService(Intent(context, SessionService::class.java).setAction(ACTION_RESUME))
+            context.startService(
+                Intent(context, SessionService::class.java).setAction(ACTION_RESUME)
+                    .putExtra(EXTRA_RESUME_WITHOUT_OPTIMIZATIONS, withoutOptimizations),
+            )
         }
 
         fun launchGame(context: Context, gameId: String): Boolean {
