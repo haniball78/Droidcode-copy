@@ -11,8 +11,14 @@ interface ThermalSource {
     fun thermalStatus(): Int
 }
 
+enum class BridgeStatus {
+    OK,
+    LOST,
+    UNKNOWN,
+}
+
 interface BridgeProbe {
-    fun ping(): Boolean
+    fun status(): BridgeStatus
 }
 
 interface Clock {
@@ -49,6 +55,7 @@ class SafetyMonitor(
     @Volatile private var countdownCancelled = false
     private var monitorThread: Thread? = null
     private var lastHeartbeatMs = 0L
+    private var thermalUnknownLogged = false
 
     fun setTweaksActive(active: Boolean) {
         tweaksActive = active
@@ -92,17 +99,27 @@ class SafetyMonitor(
         val now = clock.nowMs()
         val battery = batterySource.read()
         if (battery != null) trend.add(battery)
-        val bridgeOk = if (now - lastHeartbeatMs >= heartbeatMs) {
+        val bridgeStatus = if (now - lastHeartbeatMs >= heartbeatMs) {
             lastHeartbeatMs = now
-            bridgeProbe.ping()
+            bridgeProbe.status()
         } else {
             null
+        }
+        val thermalStatus = thermalSource.thermalStatus()
+        if (thermalStatus == SafetyPolicy.THERMAL_UNKNOWN) {
+            if (!thermalUnknownLogged) {
+                thermalUnknownLogged = true
+                Log.w(TAG, "thermal reading unknown, no thermal action taken")
+            }
+        } else {
+            thermalUnknownLogged = false
         }
         val decision = SafetyPolicy.evaluate(
             SafetyInput(
                 battery = battery,
-                thermalStatus = thermalSource.thermalStatus(),
-                bridgeOk = bridgeOk ?: true,
+                thermalStatus = thermalStatus,
+                bridgeOk = bridgeStatus != BridgeStatus.LOST,
+                bridgeUnknown = bridgeStatus == BridgeStatus.UNKNOWN,
                 tweaksActive = tweaksActive,
                 tweaksAlreadyEnded = tweaksEnded,
                 warnedAt15 = warnedAt15,
@@ -178,7 +195,7 @@ object SafetySources {
                     pct,
                     status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
                         status == android.os.BatteryManager.BATTERY_STATUS_FULL,
-                    System.currentTimeMillis(),
+                    android.os.SystemClock.elapsedRealtime(),
                 )
             } catch (_: Exception) {
                 null
@@ -190,24 +207,26 @@ object SafetySources {
         override fun thermalStatus(): Int {
             return try {
                 val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
-                if (android.os.Build.VERSION.SDK_INT >= 29) pm?.currentThermalStatus ?: 0 else 0
+                if (android.os.Build.VERSION.SDK_INT >= 29) pm?.currentThermalStatus ?: SafetyPolicy.THERMAL_UNKNOWN
+                else SafetyPolicy.THERMAL_UNKNOWN
             } catch (_: Exception) {
-                0
+                SafetyPolicy.THERMAL_UNKNOWN
             }
         }
     }
 
     fun bridge(): BridgeProbe = object : BridgeProbe {
-        override fun ping(): Boolean {
+        override fun status(): BridgeStatus {
             return try {
-                com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh().isActive
+                if (com.droiddeck.launcher.core.privileged.PrivilegedBridge.refresh().isActive) BridgeStatus.OK
+                else BridgeStatus.LOST
             } catch (_: Exception) {
-                false
+                BridgeStatus.UNKNOWN
             }
         }
     }
 
     fun systemClock(): Clock = object : Clock {
-        override fun nowMs(): Long = System.currentTimeMillis()
+        override fun nowMs(): Long = android.os.SystemClock.elapsedRealtime()
     }
 }
