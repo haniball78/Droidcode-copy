@@ -64,6 +64,28 @@ internal object BoostUncertainty {
     }
 }
 
+internal object FixedPerformanceState {
+    fun parse(raw: String): String? {
+        return when (raw.trim().lowercase()) {
+            "true" -> "true"
+            "false", "null", "" -> "false"
+            else -> null
+        }
+    }
+
+    fun item(original: String, generation: Int): JournalItem {
+        return JournalItem(
+            key = "fixed-performance",
+            original = original,
+            restoreCmd = "cmd power set-fixed-performance-mode-enabled $original 2>/dev/null",
+            verifyCmd = "cmd power get-fixed-performance-mode-enabled",
+            verifyMode = JournalVerifyMode.VALUE,
+            persistent = true,
+            generation = generation,
+        )
+    }
+}
+
 object PrivilegedBridge {
     const val DEFAULT_TIMEOUT_MS = 4000
     private const val TOKEN_FILE = "daemon-session-token.txt"
@@ -220,16 +242,12 @@ object PrivilegedBridge {
         if (!com.droiddeck.launcher.session.SessionPrefs.gameModeEngine(context)) return false
         val aggressive = com.droiddeck.launcher.session.SessionPrefs.gameModeAggressive(context)
         if (aggressive) {
-            val item = JournalItem(
-                key = "fixed-performance",
-                original = "false",
-                restoreCmd = "cmd power set-fixed-performance-mode-enabled false 2>/dev/null",
-                verifyCmd = "cmd power get-fixed-performance-mode-enabled",
-                verifyMode = JournalVerifyMode.VALUE,
-                persistent = true,
-                generation = 0,
-            )
-            if (!Tweaks.recordItem(context, item)) return false
+            if (!Tweaks.hasKey(context, "fixed-performance")) {
+                val read = executeChecked("cmd power get-fixed-performance-mode-enabled")
+                val original = if (read.exitCode == 0) FixedPerformanceState.parse(read.output) else null
+                if (original == null) return false
+                if (!Tweaks.recordItem(context, FixedPerformanceState.item(original, 0))) return false
+            }
             val boosted = boostAndProtectSession(targetPid, aggressive = true)
             if (!boosted) {
                 val state = runCatching { executeChecked("cmd power get-fixed-performance-mode-enabled") }.getOrNull()
