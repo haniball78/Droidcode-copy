@@ -22,6 +22,10 @@ public class DroidDeckPrivilegedServer {
     public static final int PORT = 28751;
     private static final String TAG = "DroidDeckPrivServer";
     private static String sessionToken = null;
+    private static volatile boolean deadmanArmed = false;
+    private static volatile boolean deadmanExpired = false;
+    private static volatile long deadmanLastBeatMs = -1L;
+    private static final long DEADMAN_WATCHDOG_MS = 45000L;
 
     public static void main(String[] args) {
         if (args.length > 0 && args[0] != null && !args[0].isEmpty()) {
@@ -36,6 +40,23 @@ public class DroidDeckPrivilegedServer {
 
             // Auto-apply essential system optimizations on daemon launch
             disablePhantomProcessKillerInternal();
+
+            Thread watchdog = new Thread(() -> {
+                while (true) {
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                    if (deadmanArmed && System.currentTimeMillis() - deadmanLastBeatMs > DEADMAN_WATCHDOG_MS) {
+                        deadmanArmed = false;
+                        deadmanExpired = true;
+                        watchdogRestore();
+                    }
+                }
+            }, "droiddeck-watchdog");
+            watchdog.setDaemon(true);
+            watchdog.start();
 
             while (true) {
                 try {
@@ -64,16 +85,43 @@ public class DroidDeckPrivilegedServer {
                     writer.println("PONG uid=" + Process.myUid() + " pid=" + Process.myPid());
                     return;
                 }
+                boolean authenticated = false;
                 if (line.startsWith("AUTH:")) {
                     String token = line.substring(5);
                     if (sessionToken == null || !sessionToken.equals(token)) {
                         writer.println("UNAUTHORIZED");
                         return;
                     }
+                    authenticated = true;
                     line = reader.readLine();
                     if (line == null) return;
                 } else if (sessionToken != null) {
                     writer.println("UNAUTHORIZED");
+                    return;
+                }
+                if (line.equals("ARM") || line.equals("BEAT") || line.equals("DISARM")) {
+                    if (!authenticated || sessionToken == null) {
+                        writer.println("UNAUTHORIZED");
+                        return;
+                    }
+                    if (line.equals("ARM")) {
+                        deadmanArmed = true;
+                        deadmanExpired = false;
+                        deadmanLastBeatMs = System.currentTimeMillis();
+                        writer.println("OK");
+                    } else if (line.equals("BEAT")) {
+                        if (deadmanExpired || !deadmanArmed) {
+                            writer.println("EXPIRED");
+                        } else {
+                            deadmanLastBeatMs = System.currentTimeMillis();
+                            writer.println("OK");
+                        }
+                    } else {
+                        deadmanArmed = false;
+                        deadmanExpired = false;
+                        deadmanLastBeatMs = -1L;
+                        writer.println("OK");
+                    }
                     return;
                 }
                 if (line.startsWith("EXEC:")) {
@@ -124,6 +172,19 @@ public class DroidDeckPrivilegedServer {
             writer.println("EXIT:" + exitCode + ":" + encodedOutput);
         } catch (Exception e) {
             writer.println("EXIT:-1:" + Base64.getEncoder().encodeToString(e.getMessage().getBytes(StandardCharsets.UTF_8)));
+        }
+    }
+
+    private static void watchdogRestore() {
+        try {
+            Runtime.getRuntime().exec(new String[]{
+                "/system/bin/sh", "-c",
+                "cmd power set-fixed-performance-mode-enabled false 2>/dev/null || true; " +
+                "settings put global droiddeck_deadman_expired 1 2>/dev/null || true"
+            }).waitFor();
+            System.out.println(TAG + ": dead-man watchdog fired, fixed-performance disabled");
+        } catch (Exception e) {
+            System.err.println(TAG + ": dead-man watchdog restore failed: " + e.getMessage());
         }
     }
 
