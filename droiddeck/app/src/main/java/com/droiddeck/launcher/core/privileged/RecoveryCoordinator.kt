@@ -49,6 +49,9 @@ object RecoveryCoordinator {
             }
             if (!Tweaks.recoveryNeeded(appContext)) return true
             if (Tweaks.rollback(appContext)) {
+                runCatching {
+                    PrivilegedBridge.executeChecked("settings delete global droiddeck_deadman_expired")
+                }
                 Log.i(TAG, "recovery succeeded on attempt ${index + 1}")
                 return true
             }
