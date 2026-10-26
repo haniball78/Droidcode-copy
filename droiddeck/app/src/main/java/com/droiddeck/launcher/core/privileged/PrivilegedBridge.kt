@@ -57,6 +57,13 @@ data class PrivilegedStatus(
     }
 }
 
+internal object BoostUncertainty {
+    fun shouldRemoveItem(boosted: Boolean, verifyExitCode: Int, verifyOutput: String?): Boolean {
+        if (boosted) return false
+        return verifyExitCode == 0 && verifyOutput?.trim() == "false"
+    }
+}
+
 object PrivilegedBridge {
     const val DEFAULT_TIMEOUT_MS = 4000
     private const val TOKEN_FILE = "daemon-session-token.txt"
@@ -215,16 +222,21 @@ object PrivilegedBridge {
         if (aggressive) {
             val item = JournalItem(
                 key = "fixed-performance",
-                original = null,
+                original = "false",
                 restoreCmd = "cmd power set-fixed-performance-mode-enabled false 2>/dev/null",
-                verifyCmd = null,
-                verifyMode = JournalVerifyMode.EXIT,
+                verifyCmd = "cmd power get-fixed-performance-mode-enabled",
+                verifyMode = JournalVerifyMode.VALUE,
                 persistent = true,
                 generation = 0,
             )
             if (!Tweaks.recordItem(context, item)) return false
             val boosted = boostAndProtectSession(targetPid, aggressive = true)
-            if (!boosted) Tweaks.removeKey(context, "fixed-performance")
+            if (!boosted) {
+                val state = runCatching { executeChecked("cmd power get-fixed-performance-mode-enabled") }.getOrNull()
+                if (BoostUncertainty.shouldRemoveItem(boosted, state?.exitCode ?: -1, state?.output)) {
+                    Tweaks.removeKey(context, "fixed-performance")
+                }
+            }
             return boosted
         }
         return boostAndProtectSession(targetPid, aggressive = false)
