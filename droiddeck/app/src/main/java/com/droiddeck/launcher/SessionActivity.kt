@@ -1017,8 +1017,52 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
                 com.droiddeck.launcher.ui.AchievementNotificationOverlay()
                 // Auto and Native resume on their own as the session comes back; only a failed resume needs the button.
                 val autoResume = suspendPolicy == SessionPrefs.SUSPEND_AUTO || suspendPolicy == SessionPrefs.SUSPEND_NATIVE
+                val pausedShown = SessionState.suspended &&
+                    (!autoResume || SessionState.resumeFailed ||
+                        SessionState.suspendKind == com.droiddeck.launcher.session.SuspendKind.SAFETY)
+                if (pausedShown && SessionState.suspendKind != null) {
+                    val suspendKind = SessionState.suspendKind!!
+                    val battery by androidx.compose.runtime.produceState<Pair<Int, Boolean>?>(null) {
+                        val b = registerReceiver(
+                            null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED),
+                        )
+                        val level = b?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                        val scale = b?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100)?.takeIf { it > 0 } ?: 100
+                        val charging = b?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1)?.let {
+                            it == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+                                it == android.os.BatteryManager.BATTERY_STATUS_FULL
+                        } ?: false
+                        value = if (level < 0) null else (level * 100 / scale) to charging
+                    }
+                    val withoutEnabled = suspendKind != com.droiddeck.launcher.session.SuspendKind.SAFETY ||
+                        com.droiddeck.launcher.session.SuspendPolicy.canResumeWithoutOptimizations(
+                            battery?.first, battery?.second == true,
+                        )
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = androidx.compose.ui.Alignment.Center,
+                    ) {
+                        com.droiddeck.launcher.ui.SessionPausedActions(
+                            kind = suspendKind,
+                            withoutOptimizationsEnabled = withoutEnabled,
+                            withoutOptimizationsDisabledReason = if (withoutEnabled) null else
+                                "Connect the charger or wait until the battery reaches 20%.",
+                            onResumeWithOptimizations = { SessionService.resumeWithOptimizations(this@SessionActivity) },
+                            onResumeWithoutOptimizations = { SessionService.resumeWithoutOptimizations(this@SessionActivity) },
+                            onFinish = {
+                                if (!com.droiddeck.launcher.session.SessionExit.isExiting()) {
+                                    com.droiddeck.launcher.session.SessionExit.request(
+                                        this@SessionActivity,
+                                        com.droiddeck.launcher.session.ExitReason.USER,
+                                    )
+                                }
+                                finish()
+                            },
+                        )
+                    }
+                }
                 SessionPausedOverlay(
-                    suspended = SessionState.suspended && (!autoResume || SessionState.resumeFailed),
+                    suspended = pausedShown,
                     engaged = SessionState.resumeRequested || SessionState.resuming,
                     failures = SessionState.resumeFailures,
                     frame = pausedFrame,
