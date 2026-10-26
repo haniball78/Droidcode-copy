@@ -102,6 +102,7 @@ class SessionService : Service() {
     private var freezePending = false
     private var freezeCancelled = false
     private var tweaksEndedForSafety = false
+    private var safetyMonitorGen = 0
     private var explicitResumeRequested = false
     private var resumeWithoutOptimizations = false
     private var leaveTimer: Runnable? = null
@@ -309,6 +310,14 @@ class SessionService : Service() {
                 Thread({ postRecoveryNotification() }, "session-recovery-notify").start()
                 return START_NOT_STICKY
             }
+            ACTION_RESOLVE_SUSPECT_LEFTOVER -> {
+                Thread({
+                    val result = com.droiddeck.launcher.core.privileged.GameModeEngine.resolveSuspectLeftover(this, true, sessionGen)
+                    Log.i(TAG, "suspect leftover resolved from notification: $result")
+                    SessionEvents.record("session.preflight_suspect_resolved", mapOf("result" to result))
+                }, "session-resolve-suspect").start()
+                return START_NOT_STICKY
+            }
             ACTION_XR_ACTIVITY_VISIBLE -> {
                 xrActivityVisible = true
                 resumeSession(panelVisible = false)
@@ -487,7 +496,7 @@ class SessionService : Service() {
                 Log.w(TAG, "tweaks blocked: unrecovered journal or legacy marker from a previous session")
                 SessionEvents.record("session.start_blocked_recovery_pending", mapOf("gen" to gen))
             } else {
-                Log.i(TAG, com.droiddeck.launcher.core.privileged.GameModeEngine.apply(this, gen))
+                Log.i(TAG, applyGameModeNotingSuspect(gen))
                 Log.i(TAG, com.droiddeck.launcher.core.privileged.AppFreezerEngine.apply(this, gen))
             }
         } else {
@@ -1786,6 +1795,7 @@ class SessionService : Service() {
 
     private fun startSafetyMonitor() {
         val appContext = applicationContext
+        safetyMonitorGen = sessionGen
         safetyMonitor?.stop()
         safetyMonitor = SafetyMonitor(
             batterySource = SafetySources.battery(appContext),
@@ -1803,15 +1813,21 @@ class SessionService : Service() {
                     postSafetyNotification("Battery at $levelPercent%: tweaks will end at 10%.")
                 }
                 override fun onEndTweaks(reason: String) {
+                    if (safetyMonitorGen != sessionGen || SessionExit.isExiting()) {
+                        safetyMonitor?.setTweaksActive(false)
+                        return
+                    }
                     endTweaksNow()
                 }
                 override fun onStopCountdownTick(secondsLeft: Int) {
                     postSafetyNotification("Stopping the game in $secondsLeft s unless cancelled.")
                 }
                 override fun onStopCountdownFinished() {
+                    if (safetyMonitorGen != sessionGen || !SessionState.running) return
                     SessionExit.request(this@SessionService, ExitReason.SAFETY)
                 }
                 override fun onBridgeLost() {
+                    if (safetyMonitorGen != sessionGen || SessionExit.isExiting()) return
                     com.droiddeck.launcher.core.privileged.RecoveryCoordinator.attemptAsync(appContext)
                     postSafetyNotification("Privileged bridge lost: restoring system settings.")
                 }
@@ -1862,14 +1878,16 @@ class SessionService : Service() {
     private fun readThermalStatus(): Int {
         return try {
             val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
-            if (android.os.Build.VERSION.SDK_INT >= 29) pm?.currentThermalStatus ?: 0 else 0
+            if (android.os.Build.VERSION.SDK_INT >= 29) pm?.currentThermalStatus ?: SafetyPolicy.THERMAL_UNKNOWN
+            else SafetyPolicy.THERMAL_UNKNOWN
         } catch (_: Exception) {
-            0
+            SafetyPolicy.THERMAL_UNKNOWN
         }
     }
 
     private fun reapplyTweaksAfterResume(gen: Int, kind: SuspendKind) {
-        if (!SessionState.running || SessionState.suspended) return
+        if (!SessionState.running || SessionState.suspended || SessionExit.isExiting()) return
+        if (gen != sessionGen) return
         val check = SuspendPolicy.checkResume(
             kind = kind,
             wantsOptimizations = true,
@@ -1889,12 +1907,44 @@ class SessionService : Service() {
             safetyMonitor?.setTweaksActive(false)
             return
         }
-        com.droiddeck.launcher.core.privileged.GameModeEngine.apply(this, gen)
+        applyGameModeNotingSuspect(gen)
         com.droiddeck.launcher.core.privileged.AppFreezerEngine.apply(this, gen)
         val pid = SessionState.guestPid.takeIf { it > 1 } ?: sessionPid
         if (pid > 1) com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.start(this, gen, pid)
         safetyMonitor?.setTweaksActive(com.droiddeck.launcher.core.privileged.GameModeEngine.isActive())
         SessionEvents.record("session.tweaks_reapplied", mapOf("gen" to gen))
+    }
+
+    private fun applyGameModeNotingSuspect(gen: Int): String {
+        val result = com.droiddeck.launcher.core.privileged.GameModeEngine.apply(this, gen)
+        if (result.contains("suspected leftover")) {
+            SessionEvents.record("session.preflight_suspect_aborted", mapOf("gen" to gen))
+            postSuspectLeftoverNotification()
+        }
+        return result
+    }
+
+    private fun postSuspectLeftoverNotification() {
+        try {
+            val manager = getSystemService(NotificationManager::class.java) ?: return
+            val channel = NotificationChannel(SAFETY_CHANNEL_ID, getString(R.string.app_name),
+                NotificationManager.IMPORTANCE_HIGH)
+            manager.createNotificationChannel(channel)
+            val resolve = PendingIntent.getService(
+                this, 8, Intent(this, SessionService::class.java).setAction(ACTION_RESOLVE_SUSPECT_LEFTOVER),
+                PendingIntent.FLAG_IMMUTABLE,
+            )
+            val notification = Notification.Builder(this, SAFETY_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_session)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText("Suspected leftover system setting: tweaks not applied. Restore defaults to continue.")
+                .addAction(Notification.Action.Builder(null, "Restore defaults", resolve).build())
+                .setAutoCancel(true)
+                .build()
+            manager.notify(SAFETY_NOTIFICATION_ID, notification)
+        } catch (t: Throwable) {
+            Log.w(TAG, "suspect leftover notification", t)
+        }
     }
 
     private fun onBackgroundHidden() {
@@ -1904,13 +1954,17 @@ class SessionService : Service() {
         if (!tweaksActive) return
         cancelLeaveTimer()
         val timeoutMs = SessionPrefs.safetyLeaveTimeoutSeconds(this).coerceIn(10, 600) * 1000L
+        val leaveGen = sessionGen
         val runnable = Runnable {
             if (!SessionState.running || SessionState.suspended || activityVisible || pipTask) return@Runnable
             if (SessionExit.isExiting()) return@Runnable
             Thread({
+                if (leaveGen != sessionGen || !SessionState.running || SessionState.suspended || SessionExit.isExiting()) return@Thread
                 com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(this)
-                val gameOk = com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, sessionGen)
-                val freezerOk = com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, sessionGen)
+                if (leaveGen != sessionGen || !SessionState.running || SessionState.suspended || SessionExit.isExiting()) return@Thread
+                val gameOk = com.droiddeck.launcher.core.privileged.GameModeEngine.restore(this, leaveGen)
+                val freezerOk = com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(this, leaveGen)
+                if (leaveGen != sessionGen || !SessionState.running || SessionState.suspended || SessionExit.isExiting()) return@Thread
                 if (gameOk && freezerOk) {
                     leaveRestored = true
                     safetyMonitor?.setTweaksActive(false)
@@ -2429,6 +2483,7 @@ class SessionService : Service() {
         private const val ACTION_CANCEL_SAFETY_COUNTDOWN = "com.droiddeck.launcher.CANCEL_SAFETY_COUNTDOWN"
         private const val ACTION_RESTORE_AND_STOP = "com.droiddeck.launcher.RESTORE_AND_STOP"
         private const val ACTION_RESTORE_NOW = "com.droiddeck.launcher.RESTORE_NOW"
+        private const val ACTION_RESOLVE_SUSPECT_LEFTOVER = "com.droiddeck.launcher.RESOLVE_SUSPECT_LEFTOVER"
         private const val EXTRA_RESUME_WITHOUT_OPTIMIZATIONS = "resumeWithoutOptimizations"
         const val ACTION_RESUME = "com.droiddeck.launcher.RESUME_SESSION"
         const val ACTION_SUSPEND_NOW = "com.droiddeck.launcher.SUSPEND_NOW"
