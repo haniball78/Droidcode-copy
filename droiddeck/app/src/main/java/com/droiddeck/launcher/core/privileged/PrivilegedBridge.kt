@@ -197,10 +197,23 @@ object PrivilegedBridge {
     fun boostAndProtectSession(context: Context, targetPid: Int): Boolean {
         if (!com.droiddeck.launcher.session.SessionPrefs.advancedMasterEnabled(context)) return false
         if (!com.droiddeck.launcher.session.SessionPrefs.gameModeEngine(context)) return false
-        return boostAndProtectSession(
-            targetPid,
-            aggressive = com.droiddeck.launcher.session.SessionPrefs.gameModeAggressive(context),
-        )
+        val aggressive = com.droiddeck.launcher.session.SessionPrefs.gameModeAggressive(context)
+        if (aggressive) {
+            val item = JournalItem(
+                key = "fixed-performance",
+                original = null,
+                restoreCmd = "cmd power set-fixed-performance-mode-enabled false 2>/dev/null",
+                verifyCmd = null,
+                verifyMode = JournalVerifyMode.EXIT,
+                persistent = true,
+                generation = 0,
+            )
+            if (!Tweaks.recordItem(context, item)) return false
+            val boosted = boostAndProtectSession(targetPid, aggressive = true)
+            if (!boosted) Tweaks.removeKey(context, "fixed-performance")
+            return boosted
+        }
+        return boostAndProtectSession(targetPid, aggressive = false)
     }
 
     fun boostAndProtectSession(targetPid: Int, aggressive: Boolean): Boolean {
