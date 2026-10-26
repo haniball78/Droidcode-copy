@@ -4,6 +4,12 @@ import android.content.Context
 import android.util.Log
 import java.util.concurrent.atomic.AtomicBoolean
 
+internal object RecoveryGeneration {
+    fun isStale(itemGeneration: Int, sessionGen: Int): Boolean {
+        return itemGeneration != 0 && itemGeneration != sessionGen
+    }
+}
+
 internal object RecoveryRetry {
     val delaysMs: List<Long> = listOf(0L, 2000L, 5000L, 10000L)
 
@@ -16,9 +22,21 @@ object RecoveryCoordinator {
     private const val TAG = "RecoveryCoordinator"
     private val running = AtomicBoolean(false)
 
+    fun recoveryPending(context: Context): Boolean {
+        val appContext = context.applicationContext
+        if (GameModeEngine.hasLegacyMarker(appContext) || AppFreezerEngine.hasLegacyMarker(appContext)) return true
+        return Tweaks.recoveryNeeded(appContext)
+    }
+
+    fun recoveryBlocksNewSession(context: Context, sessionGen: Int): Boolean {
+        val appContext = context.applicationContext
+        if (GameModeEngine.hasLegacyMarker(appContext) || AppFreezerEngine.hasLegacyMarker(appContext)) return true
+        return Tweaks.journalSnapshot(appContext).any { RecoveryGeneration.isStale(it.generation, sessionGen) }
+    }
+
     fun attemptAsync(context: Context) {
         val appContext = context.applicationContext
-        if (!Tweaks.recoveryNeeded(appContext)) return
+        if (!recoveryPending(appContext)) return
         if (!running.compareAndSet(false, true)) return
         Thread({
             try {
@@ -37,7 +55,15 @@ object RecoveryCoordinator {
 
     fun attempt(context: Context): Boolean {
         val appContext = context.applicationContext
-        if (!Tweaks.recoveryNeeded(appContext)) return true
+        if (!recoveryPending(appContext)) return true
+        if (!GameModeEngine.migrateLegacyToJournal(appContext)) {
+            Log.w(TAG, "recovery pending: game mode legacy migration failed, journal kept")
+            return false
+        }
+        if (!AppFreezerEngine.migrateLegacyToJournal(appContext)) {
+            Log.w(TAG, "recovery pending: freezer legacy migration failed, journal kept")
+            return false
+        }
         for ((index, delayMs) in RecoveryRetry.delaysMs.withIndex()) {
             if (index > 0) {
                 try {
@@ -47,11 +73,17 @@ object RecoveryCoordinator {
                     return false
                 }
             }
-            if (!Tweaks.recoveryNeeded(appContext)) return true
+            if (!Tweaks.recoveryNeeded(appContext)) {
+                GameModeEngine.deleteLegacyMarker(appContext)
+                AppFreezerEngine.deleteLegacyMarker(appContext)
+                return true
+            }
             if (Tweaks.rollback(appContext)) {
                 runCatching {
                     PrivilegedBridge.executeChecked("settings delete global droiddeck_deadman_expired")
                 }
+                GameModeEngine.deleteLegacyMarker(appContext)
+                AppFreezerEngine.deleteLegacyMarker(appContext)
                 Log.i(TAG, "recovery succeeded on attempt ${index + 1}")
                 return true
             }
