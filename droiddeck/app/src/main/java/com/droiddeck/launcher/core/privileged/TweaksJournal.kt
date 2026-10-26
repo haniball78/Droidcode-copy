@@ -6,7 +6,9 @@ import java.io.File
 
 enum class JournalVerifyMode {
     VALUE,
-    EXIT,
+    CONTAINS,
+    NOT_CONTAINS,
+    UNVERIFIED,
 }
 
 data class JournalItem(
@@ -17,6 +19,7 @@ data class JournalItem(
     val verifyMode: JournalVerifyMode,
     val persistent: Boolean,
     val generation: Int,
+    val verifyExpect: String? = null,
 )
 
 internal object JournalCodec {
@@ -24,10 +27,17 @@ internal object JournalCodec {
         val body = items.joinToString(",") { item ->
             val verify = if (item.verifyCmd == null) "null" else "\"${escape(item.verifyCmd)}\""
             val original = if (item.original == null) "null" else "\"${escape(item.original)}\""
-            val mode = if (item.verifyMode == JournalVerifyMode.VALUE) "value" else "exit"
+            val mode = when (item.verifyMode) {
+                JournalVerifyMode.VALUE -> "value"
+                JournalVerifyMode.CONTAINS -> "contains"
+                JournalVerifyMode.NOT_CONTAINS -> "not_contains"
+                JournalVerifyMode.UNVERIFIED -> "unverified"
+            }
+            val expect = if (item.verifyExpect == null) "null" else "\"${escape(item.verifyExpect)}\""
             "{\"key\":\"${escape(item.key)}\",\"original\":$original," +
                 "\"restore\":\"${escape(item.restoreCmd)}\",\"verify\":$verify," +
-                "\"mode\":\"$mode\",\"persistent\":${item.persistent},\"generation\":${item.generation}}"
+                "\"mode\":\"$mode\",\"persistent\":${item.persistent},\"generation\":${item.generation}," +
+                "\"verifyExpect\":$expect}"
         }
         return "{\"version\":1,\"items\":[$body]}"
     }
@@ -55,13 +65,20 @@ internal object JournalCodec {
                 val verify = rawVerify as? String?
                 val mode = when (map["mode"] as? String) {
                     "value" -> JournalVerifyMode.VALUE
-                    "exit" -> JournalVerifyMode.EXIT
+                    "contains" -> JournalVerifyMode.CONTAINS
+                    "not_contains" -> JournalVerifyMode.NOT_CONTAINS
+                    "exit", "unverified" -> JournalVerifyMode.UNVERIFIED
                     else -> return null
                 }
                 if (mode == JournalVerifyMode.VALUE && verify == null) return null
+                if ((mode == JournalVerifyMode.CONTAINS || mode == JournalVerifyMode.NOT_CONTAINS) && verify == null) return null
+                val rawExpect = if (map.containsKey("verifyExpect")) map["verifyExpect"] else null
+                if (rawExpect != null && rawExpect !is String) return null
+                val expect = rawExpect as? String?
+                if ((mode == JournalVerifyMode.CONTAINS || mode == JournalVerifyMode.NOT_CONTAINS) && expect == null) return null
                 val persistent = map["persistent"] as? Boolean ?: return null
                 val generation = (map["generation"] as? Number)?.toInt() ?: return null
-                JournalItem(key, original, restore, verify, mode, persistent, generation)
+                JournalItem(key, original, restore, verify, mode, persistent, generation, expect)
             }
         } catch (_: Exception) {
             null
@@ -228,11 +245,23 @@ internal object JournalRollback {
             if (execute(item.restoreCmd) != 0) {
                 return Result(false, items.subList(0, index + 1), item.key)
             }
-            if (item.verifyMode == JournalVerifyMode.VALUE) {
-                val actual = readVerified(item)
-                if (actual != item.original) {
-                    return Result(false, items.subList(0, index + 1), item.key)
+            val verified = when (item.verifyMode) {
+                JournalVerifyMode.VALUE -> {
+                    val raw = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key)
+                    SafetyChecks.parseBackgroundLimit(raw) == item.original
                 }
+                JournalVerifyMode.CONTAINS -> {
+                    val output = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key)
+                    output.contains(item.verifyExpect ?: "")
+                }
+                JournalVerifyMode.NOT_CONTAINS -> {
+                    val output = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key)
+                    !output.contains(item.verifyExpect ?: "")
+                }
+                JournalVerifyMode.UNVERIFIED -> true
+            }
+            if (!verified) {
+                return Result(false, items.subList(0, index + 1), item.key)
             }
         }
         return Result(true, emptyList(), null)
@@ -252,39 +281,48 @@ internal object JournalMerge {
 object Tweaks {
     private const val TAG = "TweaksJournal"
     private const val JOURNAL_FILE = "safety-journal.json"
-    private val rollbackLock = Any()
+    private val journalLock = Any()
 
     fun recoveryNeeded(context: Context): Boolean {
-        val file = journalFile(context)
-        return file.exists() || AtomicStateFile.bakFile(file).exists() || AtomicStateFile.tmpFile(file).exists()
+        return synchronized(journalLock) {
+            val file = journalFile(context)
+            file.exists() || AtomicStateFile.bakFile(file).exists() || AtomicStateFile.tmpFile(file).exists()
+        }
     }
 
     fun hasKey(context: Context, key: String): Boolean {
-        return load(context)?.any { it.key == key } == true
+        return synchronized(journalLock) { load(context)?.any { it.key == key } == true }
     }
 
     fun journalSnapshot(context: Context): List<JournalItem> {
-        return load(context) ?: emptyList()
+        return synchronized(journalLock) { load(context) ?: emptyList() }
     }
 
     fun recordItems(context: Context, items: List<JournalItem>): Boolean {
-        if (items.isEmpty()) return true
-        for (item in items) {
-            if (item.verifyMode == JournalVerifyMode.VALUE && item.verifyCmd == null) return false
+        return synchronized(journalLock) {
+            if (items.isEmpty()) return@synchronized true
+            for (item in items) {
+                if (item.verifyMode == JournalVerifyMode.VALUE && item.verifyCmd == null) return@synchronized false
+                if ((item.verifyMode == JournalVerifyMode.CONTAINS || item.verifyMode == JournalVerifyMode.NOT_CONTAINS) &&
+                    (item.verifyCmd == null || item.verifyExpect == null)
+                ) return@synchronized false
+            }
+            val current = load(context) ?: return@synchronized false
+            save(context, JournalMerge.merge(current, items))
         }
-        val current = load(context) ?: return false
-        return save(context, JournalMerge.merge(current, items))
     }
 
     fun recordItem(context: Context, item: JournalItem): Boolean = recordItems(context, listOf(item))
 
     fun removeKey(context: Context, key: String): Boolean {
-        val current = load(context) ?: return false
-        return save(context, current.filter { it.key != key })
+        return synchronized(journalLock) {
+            val current = load(context) ?: return@synchronized false
+            save(context, current.filter { it.key != key })
+        }
     }
 
     fun rollback(context: Context): Boolean {
-        return synchronized(rollbackLock) { rollbackLocked(context) }
+        return synchronized(journalLock) { rollbackLocked(context) }
     }
 
     private fun rollbackLocked(context: Context): Boolean {
@@ -300,7 +338,8 @@ object Tweaks {
                 if (verifyCmd == null) {
                     null
                 } else {
-                    SafetyChecks.parseBackgroundLimit(exec(context, verifyCmd))
+                    val result = execChecked(context, verifyCmd)
+                    if (result.exitCode != 0) null else result.output
                 }
             },
         )
@@ -313,8 +352,10 @@ object Tweaks {
     }
 
     fun applyExistingKeyChange(context: Context, key: String, applyCmd: String): Boolean {
-        if (!hasKey(context, key)) return false
-        return execChecked(context, applyCmd).exitCode == 0
+        return synchronized(journalLock) {
+            if (load(context)?.any { it.key == key } != true) return@synchronized false
+            execChecked(context, applyCmd).exitCode == 0
+        }
     }
 
     private fun load(context: Context): List<JournalItem>? {
