@@ -519,7 +519,6 @@ internal fun SetupPanel(
 }
 
 @Composable
-@Composable
 internal fun PhantomDisableCard(
     host: MenuHost,
     status: PhantomProcessStatus,
@@ -594,6 +593,7 @@ internal fun PhantomDisableCard(
     }
 }
 
+@Composable
 private fun AdvancedSetupTab(
     host: MenuHost,
     s: FrontEndState,
