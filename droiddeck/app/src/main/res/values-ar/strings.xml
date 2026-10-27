@@ -3191,4 +3191,8 @@
     <string name="spatial_saved_views_hint">يمكن إعادة حساب المشاهدات المحفوظة. ابدأ معايرة جديدة لالتقاطها في نظام إحداثيات التتبع الحالي.</string>
     <string name="spatial_model_checksum_error">المجموع الاختباري لنموذج تتبع اليدين غير مطابق</string>
     <string name="spatial_opencv_load_error">تعذر تحميل OpenCV</string>
+    <string name="baseline_title">تقرير الحالة الأساسية للجهاز</string>
+    <string name="baseline_captured">تم الالتقاط: %1$s</string>
+    <string name="baseline_not_captured">لم يُلتقط بعد — يُنشأ عند أول تشغيل بعد الاتصال بتصحيح الأخطاء اللاسلكي.</string>
+    <string name="baseline_share">مشاركة تقرير الحالة الأساسية</string>
 </resources>
