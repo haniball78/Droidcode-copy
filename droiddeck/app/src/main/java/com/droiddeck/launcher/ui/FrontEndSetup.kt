@@ -657,6 +657,9 @@ private fun AdvancedSetupTab(
                 masterEnabled = on
                 SessionPrefs.setAdvancedMasterEnabled(ctx, on)
                 if (!on) {
+                    com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                        ctx, "advanced.action", "master-off-restore",
+                    )
                     // Completely revert all modifications immediately
                     scope.launch(Dispatchers.IO) {
                         com.droiddeck.launcher.core.privileged.GameModeEngine.restore(ctx, 0)
@@ -679,6 +682,9 @@ private fun AdvancedSetupTab(
                 button = if (restoring) stringResource(R.string.setup_adv_restoring) else stringResource(R.string.setup_adv_safe_restore_btn),
                 onClick = {
                     if (restoring) return@ActionRow
+                    com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                        ctx, "advanced.action", "safe-restore",
+                    )
                     scope.launch {
                         restoring = true
                         safeRestoreReport = null
@@ -781,7 +787,17 @@ private fun AdvancedSetupTab(
                 checked = diagnosticsEnabled,
             ) { on ->
                 diagnosticsEnabled = on
-                com.droiddeck.launcher.core.privileged.DiagnosticsLog.setEnabled(ctx, on)
+                if (on) {
+                    com.droiddeck.launcher.core.privileged.DiagnosticsLog.setEnabled(ctx, true)
+                    com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                        ctx, "diagnostics.control", "enabled",
+                    )
+                } else {
+                    com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                        ctx, "diagnostics.control", "disabled",
+                    )
+                    com.droiddeck.launcher.core.privileged.DiagnosticsLog.setEnabled(ctx, false)
+                }
             }
             Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(

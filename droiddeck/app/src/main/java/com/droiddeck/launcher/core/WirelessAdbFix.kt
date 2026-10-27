@@ -215,17 +215,24 @@ object WirelessAdbFix {
     fun startPrivilegedDaemonViaAdb(context: Context, host: String, port: Int) {
         loadOrCreateIdentity(context.applicationContext)
         val starterCmd = com.droiddeck.launcher.core.privileged.PrivilegedBridge.getStarterAdbCommand(context)
+        val steps = StringBuilder()
         Kadb.create(host, port).use { adb ->
             if (SessionPrefs.phantomDisableEnabled(context)) {
-                adb.shell("device_config set_sync_disabled_for_tests persistent && device_config put activity_manager max_phantom_processes 2147483647 && settings put global settings_enable_monitor_phantom_procs false")
+                steps.append("phantom:").append(adb.shell("device_config set_sync_disabled_for_tests persistent && device_config put activity_manager max_phantom_processes 2147483647 && settings put global settings_enable_monitor_phantom_procs false").exitCode).append(",")
+            } else {
+                steps.append("phantom:skipped,")
             }
-            adb.shell("pm grant ${context.packageName} android.permission.WRITE_SECURE_SETTINGS 2>/dev/null || true")
-            adb.shell("pm grant ${context.packageName} android.permission.DUMP 2>/dev/null || true")
-            adb.shell("pm grant ${context.packageName} android.permission.PACKAGE_USAGE_STATS 2>/dev/null || true")
-            adb.shell("dumpsys deviceidle whitelist +${context.packageName} 2>/dev/null || true")
-            adb.shell("cmd appops set ${context.packageName} RUN_IN_BACKGROUND allow 2>/dev/null || true")
-            adb.shell(starterCmd)
+            steps.append("grant-secure:").append(adb.shell("pm grant ${context.packageName} android.permission.WRITE_SECURE_SETTINGS 2>/dev/null || true").exitCode).append(",")
+            steps.append("grant-dump:").append(adb.shell("pm grant ${context.packageName} android.permission.DUMP 2>/dev/null || true").exitCode).append(",")
+            steps.append("grant-usage:").append(adb.shell("pm grant ${context.packageName} android.permission.PACKAGE_USAGE_STATS 2>/dev/null || true").exitCode).append(",")
+            steps.append("whitelist:").append(adb.shell("dumpsys deviceidle whitelist +${context.packageName} 2>/dev/null || true").exitCode).append(",")
+            steps.append("appops:").append(adb.shell("cmd appops set ${context.packageName} RUN_IN_BACKGROUND allow 2>/dev/null || true").exitCode).append(",")
+            steps.append("starter:").append(adb.shell(starterCmd).exitCode)
         }
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            context, "device.change", "daemon-start-steps",
+            fields = mapOf("steps" to steps.toString()),
+        )
         saveConnection(context, host, port)
         com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
             context, "adb.daemon", "started", fields = mapOf("port" to port.toString()),
@@ -266,6 +273,9 @@ object WirelessAdbFix {
         val directory = context.applicationContext.noBackupFilesDir
         File(directory, HOST_FILE).delete()
         File(directory, CONNECTION_FILE).delete()
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            context, "adb.pair", "cleared",
+        )
     }
 
     fun startPrivilegedDaemonWithSavedPairing(context: Context): Boolean {

@@ -252,6 +252,10 @@ object AppFreezerEngine {
         applied = true
         val summary = "app freezer: ON [gen=$sessionGen, ${results.joinToString(", ")}]"
         Log.i(TAG, summary)
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            context, "device.change", "app-freezer-applied",
+            fields = mapOf("suspended" to uniqueTargets.size.toString(), "doze" to SessionPrefs.deepSystemDoze(context).toString()),
+        )
         return summary
     }
 
@@ -291,6 +295,9 @@ object AppFreezerEngine {
         dozeForced = false
         suspendedPackages.clear()
         Log.i(TAG, "app freezer: OFF (all apps restored cleanly)")
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            context, "device.change", "app-freezer-restored",
+        )
         return true
     }
 

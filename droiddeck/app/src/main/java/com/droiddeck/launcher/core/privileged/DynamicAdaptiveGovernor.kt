@@ -265,6 +265,10 @@ object DynamicAdaptiveGovernor {
                         Log.w(TAG, "applyTierAction refused: game mode journal has no background limit")
                         return@submit
                     }
+                    com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                        context, "device.change", "governor-tier",
+                        fields = mapOf("tier" to tier.name, "limit" to limit),
+                    )
                     if (script.isNotEmpty()) {
                         PrivilegedBridge.executeChecked(script, PrivilegedBridge.DEFAULT_TIMEOUT_MS)
                     }

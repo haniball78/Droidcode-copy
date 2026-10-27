@@ -184,6 +184,10 @@ object GameModeEngine {
 
         val summary = "game mode: ON [gen=$sessionGen, mode=${if (aggressive) "TURBO" else "COOL_LOAD_REDUCER"}]"
         Log.i(TAG, summary)
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            context, "device.change", "game-mode-applied",
+            fields = mapOf("mode" to if (aggressive) "TURBO" else "COOL_LOAD_REDUCER"),
+        )
         return summary
     }
 
@@ -289,6 +293,9 @@ object GameModeEngine {
         aggressiveActive = false
 
         Log.i(TAG, "game mode: OFF (all settings restored cleanly)")
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            context, "device.change", "game-mode-restored",
+        )
         return true
     }
 

@@ -232,7 +232,9 @@ object PrivilegedBridge {
 
     fun disablePhantomProcesses(context: Context): Boolean {
         ensureSessionToken(context)
-        return disablePhantomProcessesInternal()
+        val result = disablePhantomProcessesInternal()
+        DiagnosticsLog.log(context, "phantom.apply", if (result) "succeeded" else "failed", fields = mapOf("action" to "disable"))
+        return result
     }
 
     private fun disablePhantomProcessesInternal(): Boolean {
@@ -310,7 +312,7 @@ object PrivilegedBridge {
     fun grantDroidDeckPermissions(context: Context): Boolean {
         ensureSessionToken(context)
         val pkg = context.packageName
-        return if (_status.value.mode == PrivilegedMode.EMBEDDED_DAEMON) {
+        val result = if (_status.value.mode == PrivilegedMode.EMBEDDED_DAEMON) {
             runEmbeddedAction("GRANT_PERMS:$pkg")
         } else {
             execute(
@@ -319,6 +321,8 @@ object PrivilegedBridge {
                 "pm grant $pkg android.permission.PACKAGE_USAGE_STATS"
             ).exitCode == 0
         }
+        DiagnosticsLog.log(context, "device.change", if (result) "grants-succeeded" else "grants-failed")
+        return result
     }
 
     fun getStarterAdbCommand(context: Context): String {
