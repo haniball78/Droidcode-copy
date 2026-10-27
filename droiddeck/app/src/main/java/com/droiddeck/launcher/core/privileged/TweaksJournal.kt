@@ -346,6 +346,27 @@ object Tweaks {
 
     fun recordItem(context: Context, item: JournalItem): Boolean = recordItems(context, listOf(item))
 
+    internal fun effectiveVerifyCmd(item: JournalItem): String? {
+        val stored = item.verifyCmd ?: return null
+        if (item.key != "app-freezer-packages" || !stored.contains("list packages -s")) return stored
+        val targets = storedTargets(item.restoreCmd)
+        if (targets.isEmpty()) return stored
+        return AppFreezerEngine.packagesVerifyCmd(targets)
+    }
+
+    internal fun storedTargets(restoreCmd: String): List<String> {
+        val found = ArrayList<String>()
+        val packagePattern = Regex("^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$")
+        for ((index, segment) in restoreCmd.split("unsuspend").withIndex()) {
+            if (index == 0) continue
+            for (token in segment.trim().split(Regex("\\s+"))) {
+                if (token.startsWith("2>")) break
+                if (packagePattern.matches(token) && !found.contains(token)) found.add(token)
+            }
+        }
+        return found
+    }
+
     fun removeKey(context: Context, key: String): Boolean {
         return synchronized(journalLock) {
             val current = load(context) ?: return@synchronized false
@@ -387,7 +408,7 @@ object Tweaks {
                 listOf(item),
                 execute = { cmd -> execChecked(context, cmd).exitCode },
                 readVerified = { verified ->
-                    val verifyCmd = verified.verifyCmd
+                    val verifyCmd = effectiveVerifyCmd(verified)
                     if (verifyCmd == null) {
                         null
                     } else {
@@ -418,7 +439,7 @@ object Tweaks {
             current,
             execute = { cmd -> execChecked(context, cmd).exitCode },
             readVerified = { item ->
-                val verifyCmd = item.verifyCmd
+                val verifyCmd = effectiveVerifyCmd(item)
                 if (verifyCmd == null) {
                     null
                 } else {

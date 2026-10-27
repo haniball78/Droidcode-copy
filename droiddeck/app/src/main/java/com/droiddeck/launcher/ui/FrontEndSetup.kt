@@ -849,8 +849,9 @@ private fun AdvancedSetupTab(
                 val active = privStatus.isActive
                 val snapshot = com.droiddeck.launcher.core.privileged.Tweaks.journalSnapshot(ctx)
                 val scannedRows = snapshot.map { item ->
-                    val current = if (active && item.verifyCmd != null) {
-                        val read = runCatching { com.droiddeck.launcher.core.privileged.PrivilegedBridge.executeChecked(item.verifyCmd) }.getOrNull()
+                    val verifyCmd = com.droiddeck.launcher.core.privileged.Tweaks.effectiveVerifyCmd(item)
+                    val current = if (active && verifyCmd != null) {
+                        val read = runCatching { com.droiddeck.launcher.core.privileged.PrivilegedBridge.executeChecked(verifyCmd) }.getOrNull()
                         if (read != null && read.exitCode == 0) read.output else null
                     } else {
                         null

@@ -27,6 +27,10 @@ object AppFreezerEngine {
     private const val TAG = "AppFreezerEngine"
     private const val MARKER_FILE = "suspended-packages.txt"
 
+    internal fun packagesVerifyCmd(targets: List<String>): String {
+        return "for p in ${targets.joinToString(" ")}; do dumpsys package \$p 2>/dev/null | grep -q \"suspended=true\" && echo \$p; done | wc -l"
+    }
+
     /**
      * Non-essential OEM background services, telemetry trackers, and preloaded bloatware
      * that poll CPU/battery during gameplay without providing any gaming value.
@@ -215,13 +219,12 @@ object AppFreezerEngine {
                         append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
                     }
                 }
-                val grepFlags = uniqueTargets.joinToString(" ") { "-e $it" }
                 items.add(
                     JournalItem(
                         key = "app-freezer-packages",
                         original = "0",
                         restoreCmd = restoreScript,
-                        verifyCmd = "cmd package list packages -s --user 0 2>/dev/null | grep -F $grepFlags 2>/dev/null | wc -l",
+                        verifyCmd = packagesVerifyCmd(uniqueTargets),
                         verifyMode = JournalVerifyMode.VALUE,
                         persistent = true,
                         generation = sessionGen,
@@ -332,13 +335,12 @@ object AppFreezerEngine {
                     append("cmd package unsuspend --user 0 ${chunk.joinToString(" ")} 2>/dev/null; ")
                 }
             }
-            val grepFlags = packages.joinToString(" ") { "-e $it" }
             items.add(
                 JournalItem(
                     key = "app-freezer-packages",
                     original = "0",
                     restoreCmd = restoreScript,
-                    verifyCmd = "cmd package list packages -s --user 0 2>/dev/null | grep -F $grepFlags 2>/dev/null | wc -l",
+                    verifyCmd = packagesVerifyCmd(packages),
                     verifyMode = JournalVerifyMode.VALUE,
                     persistent = true,
                     generation = 0,
