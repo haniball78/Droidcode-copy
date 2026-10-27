@@ -21,8 +21,8 @@ class FreezerVerifyTest {
     @Test
     fun newVerifyCmdReadsDumpsysFlagNotPackageList() {
         val cmd = AppFreezerEngine.packagesVerifyCmd(listOf("com.microsoft.skydrive", "com.samsung.android.forest"))
-        assertTrue(cmd.contains("dumpsys package com.microsoft.skydrive"))
-        assertTrue(cmd.contains("dumpsys package com.samsung.android.forest"))
+        assertTrue(cmd.contains("for p in com.microsoft.skydrive com.samsung.android.forest"))
+        assertTrue(cmd.contains("dumpsys package \$p"))
         assertTrue(cmd.contains("suspended=true"))
         assertFalse(cmd.contains("list packages -s"))
     }
@@ -31,8 +31,8 @@ class FreezerVerifyTest {
     fun legacyStoredItemUsesDerivedDumpsysCmd() {
         val effective = Tweaks.effectiveVerifyCmd(legacyPackagesItem())
         assertTrue(effective != null)
-        assertTrue(effective!!.contains("dumpsys package com.samsung.android.bixby.agent"))
-        assertTrue(effective.contains("dumpsys package com.microsoft.skydrive"))
+        assertTrue(effective!!.contains("for p in com.samsung.android.bixby.agent com.microsoft.skydrive"))
+        assertTrue(effective.contains("dumpsys package \$p"))
         assertFalse(effective.contains("list packages -s"))
     }
 
