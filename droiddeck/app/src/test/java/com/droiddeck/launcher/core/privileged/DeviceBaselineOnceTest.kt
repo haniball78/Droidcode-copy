@@ -35,6 +35,20 @@ class DeviceBaselineOnceTest {
     }
 
     @Test
+    fun ensureAfterPairingAfterSuccessChangesNothing() {
+        context.getSharedPreferences("device-baseline", Context.MODE_PRIVATE).edit()
+            .putBoolean("baseline_captured", true)
+            .putString("baseline_file", "device-baseline-20260101-000000.md")
+            .putLong("baseline_time_ms", 123L)
+            .apply()
+        DeviceBaselineCapture.ensureAfterPairing(context, "127.0.0.1", 1)
+        val info = DeviceBaselineCapture.info(context)
+        assertTrue(info.captured)
+        assertEquals("device-baseline-20260101-000000.md", info.fileName)
+        assertEquals(123L, info.capturedAtMs)
+    }
+
+    @Test
     fun failedCaptureLeavesFlagUnsetForRetry() {
         val result = DeviceBaselineCapture.ensureAfterPairing(context, "127.0.0.1", 1)
         assertNull(result)
