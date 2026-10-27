@@ -26,6 +26,7 @@ object ShutdownRestore {
         }, "safety-shutdown-deadline").start()
         Thread({
             val start = android.os.SystemClock.elapsedRealtime()
+            com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(appContext, "safety.shutdown", "received")
             if (!Tweaks.recoveryNeeded(appContext)) {
                 Log.i(TAG, "shutdown restore not needed, no journal")
                 finishOnce()
@@ -38,6 +39,10 @@ object ShutdownRestore {
                 false
             }
             val elapsed = android.os.SystemClock.elapsedRealtime() - start
+            com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                appContext, "safety.shutdown", if (ok) "rollback-finished" else "rollback-failed",
+                fields = mapOf("duration_ms" to elapsed.toString()),
+            )
             if (ok) {
                 Log.i(TAG, "shutdown restore ok in ${elapsed}ms")
             } else {

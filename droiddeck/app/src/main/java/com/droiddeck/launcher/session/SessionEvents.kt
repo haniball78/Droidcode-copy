@@ -84,6 +84,10 @@ object SessionEvents {
             SessionState.failureStatus = status
         }
         record("session.failed", mapOf("code" to code, "message" to message, "status" to status))
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            "session", "failed",
+            fields = mapOf("code" to code, "status" to (status?.toString() ?: "")),
+        )
     }
 
     fun firstFrame() {

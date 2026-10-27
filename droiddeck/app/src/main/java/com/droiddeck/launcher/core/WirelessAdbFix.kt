@@ -49,8 +49,11 @@ object WirelessAdbFix {
     }
 
     suspend fun pair(context: Context, host: String, port: Int, pairingCode: String) {
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.attach(context)
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(context, "adb.pair", "started", fields = mapOf("port" to port.toString()))
         loadOrCreateIdentity(context.applicationContext)
         Kadb.pair(host, port, pairingCode, "DroidDeck")
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(context, "adb.pair", "succeeded", fields = mapOf("port" to port.toString()))
         writeAtomically(context, File(context.noBackupFilesDir, HOST_FILE), host.toByteArray())
         writeAtomically(context, File(context.noBackupFilesDir, CONNECTION_FILE), ByteArray(0))
     }
@@ -180,6 +183,10 @@ object WirelessAdbFix {
         }
         if (PhantomProcessLimit.usesDeviceConfig()) PhantomProcessLimit.rememberAndroid12(context, !enabled)
         saveConnection(context, host, port)
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            context, "phantom.apply", "succeeded",
+            fields = mapOf("action" to if (enabled) "re-enable" else "disable"),
+        )
     }
 
     fun setUsingSavedPairing(context: Context, enabled: Boolean) {
@@ -220,6 +227,9 @@ object WirelessAdbFix {
             adb.shell(starterCmd)
         }
         saveConnection(context, host, port)
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            context, "adb.daemon", "started", fields = mapOf("port" to port.toString()),
+        )
     }
 
     fun isPaired(context: Context): Boolean {
@@ -232,7 +242,7 @@ object WirelessAdbFix {
 
     suspend fun pairAndStartPrivilegedDaemon(context: Context, port: Int, pairingCode: String): Result<Unit> =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
+            val result = runCatching {
                 pair(context, LOOPBACK, port, pairingCode)
                 val baselinePort = localConnectPort(context)
                 if (baselinePort != null) {
@@ -243,6 +253,13 @@ object WirelessAdbFix {
                     ?: error("Connect port not discovered. Ensure Wireless Debugging is active.")
                 startPrivilegedDaemonViaAdb(context, LOOPBACK, connectPort)
             }
+            if (result.isFailure) {
+                com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                    context, "adb.pair", "failed",
+                    fields = mapOf("reason" to (result.exceptionOrNull()?.javaClass?.simpleName ?: "unknown")),
+                )
+            }
+            result
         }
 
     fun clearPairing(context: Context) {
@@ -274,6 +291,9 @@ object WirelessAdbFix {
             }.getOrDefault(false)
             if (secondAttempt) return true
         }
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            appContext, "adb.daemon", "failed", fields = mapOf("port" to port.toString()),
+        )
         return false
     }
 }

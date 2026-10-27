@@ -414,6 +414,10 @@ class SessionService : Service() {
         SessionState.firstFrameSeen = false
         SessionState.guestPid = -1
         SessionEvents.transition(SessionPhase.STARTING_GUEST, "service.started", mapOf("mode" to SessionState.mode))
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.attach(this)
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            this, "session", "started", fields = mapOf("mode" to SessionState.mode),
+        )
         com.droiddeck.launcher.wayland.CompositorHost.newSession()
         val gen = ++sessionGen
         cancelQueuedSteamGame(clearMailbox = false)
@@ -1735,6 +1739,10 @@ class SessionService : Service() {
             runCatching { com.droiddeck.launcher.agent.AgentEnv.endSession(this) }
                 .onFailure { Log.w(TAG, "clearing the agent's session environment", it) }
             releaseLocks()
+            com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                this, "session", "stopped",
+                fields = mapOf("mode" to SessionState.mode, "status" to status.toString()),
+            )
             if (status == 0) {
                 SessionEvents.transition(SessionPhase.IDLE, "session.stopped", mapOf("status" to status))
             } else {

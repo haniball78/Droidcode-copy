@@ -500,7 +500,16 @@ fun UncertainMark(description: String) {
 @Composable
 fun ToggleRow(host: MenuHost, key: String, label: String, hint: String?, checked: Boolean, enabled: Boolean = true, chipModifier: Modifier = Modifier, onChange: (Boolean) -> Unit) =
     SettingsRow(label, hint) {
-        ToggleSwitch(checked, enabled, label, chipModifier.testTag("setting-$key")) { host.open = null; onChange(it) }
+        ToggleSwitch(checked, enabled, label, chipModifier.testTag("setting-$key")) {
+            host.open = null
+            if (key.startsWith("adv-")) {
+                com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                    "advanced.toggle", "toggled",
+                    fields = mapOf("feature" to key, "on" to it.toString()),
+                )
+            }
+            onChange(it)
+        }
     }
 
 @Composable

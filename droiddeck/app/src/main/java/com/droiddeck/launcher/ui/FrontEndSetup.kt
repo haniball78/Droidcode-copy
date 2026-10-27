@@ -543,9 +543,17 @@ internal fun PhantomDisableCard(
                     SessionPrefs.setPhantomDisableEnabled(ctx, disable)
                     enabled = disable
                     message = ctx.getString(if (disable) R.string.phantom_card_disabled else R.string.phantom_card_reenabled)
+                    com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                        ctx, "phantom.apply", "succeeded",
+                        fields = mapOf("action" to if (disable) "disable" else "re-enable"),
+                    )
                     onRefreshStatus()
                 } else {
                     message = ctx.getString(R.string.setup_limit_adb_failed)
+                    com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                        ctx, "phantom.apply", "failed",
+                        fields = mapOf("action" to if (disable) "disable" else "re-enable"),
+                    )
                     onApplyFailed?.invoke(!disable)
                 }
             }
@@ -754,6 +762,53 @@ private fun AdvancedSetupTab(
                     }
                     SecondaryButton(stringResource(R.string.setup_check_again), compact = true) {
                         info = com.droiddeck.launcher.core.privileged.DeviceBaselineCapture.info(ctx)
+                    }
+                }
+            }
+        }
+    }
+
+    val diagnosticsCard: @Composable () -> Unit = {
+        var summary by remember { mutableStateOf(com.droiddeck.launcher.core.privileged.DiagnosticsLog.summary(ctx)) }
+        var hasFile by remember { mutableStateOf(com.droiddeck.launcher.core.privileged.DiagnosticsLog.file(ctx) != null) }
+        var diagnosticsEnabled by remember { mutableStateOf(com.droiddeck.launcher.core.privileged.DiagnosticsLog.isEnabled(ctx)) }
+        SettingsGroup(stringResource(R.string.diagnostics_title)) {
+            ToggleRow(
+                host = host,
+                key = "diagnostics-enabled",
+                label = stringResource(R.string.diagnostics_toggle),
+                hint = null,
+                checked = diagnosticsEnabled,
+            ) { on ->
+                diagnosticsEnabled = on
+                com.droiddeck.launcher.core.privileged.DiagnosticsLog.setEnabled(ctx, on)
+            }
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    stringResource(
+                        R.string.diagnostics_summary,
+                        if (summary != null && summary!!.lastWallMs > 0) {
+                            com.droiddeck.launcher.core.privileged.DiagnosticsLog.formatTime(summary!!.lastWallMs)
+                        } else {
+                            "—"
+                        },
+                        summary?.lines?.toInt() ?: 0,
+                    ),
+                    fontSize = 13.sp, color = colors.onSurfaceVariant,
+                )
+                Text(stringResource(R.string.diagnostics_note), fontSize = 13.sp, color = colors.onSurfaceVariant)
+                Actions {
+                    SecondaryButton(stringResource(R.string.diagnostics_share), compact = true, enabled = hasFile) {
+                        com.droiddeck.launcher.core.privileged.DiagnosticsLog.shareIntent(ctx)?.let { ctx.startActivity(it) }
+                    }
+                    SecondaryButton(stringResource(R.string.diagnostics_delete), compact = true, enabled = hasFile) {
+                        com.droiddeck.launcher.core.privileged.DiagnosticsLog.deleteCurrentFile(ctx)
+                        summary = com.droiddeck.launcher.core.privileged.DiagnosticsLog.summary(ctx)
+                        hasFile = com.droiddeck.launcher.core.privileged.DiagnosticsLog.file(ctx) != null
+                    }
+                    SecondaryButton(stringResource(R.string.setup_check_again), compact = true) {
+                        summary = com.droiddeck.launcher.core.privileged.DiagnosticsLog.summary(ctx)
+                        hasFile = com.droiddeck.launcher.core.privileged.DiagnosticsLog.file(ctx) != null
                     }
                 }
             }
@@ -985,6 +1040,7 @@ private fun AdvancedSetupTab(
                 masterControlCard()
                 phantomCard()
                 baselineCard()
+                diagnosticsCard()
                 privilegedCard()
                 gameModeGroup()
                 freezerGroup()
@@ -1000,6 +1056,7 @@ private fun AdvancedSetupTab(
             masterControlCard()
             phantomCard()
             baselineCard()
+            diagnosticsCard()
             privilegedCard()
             gameModeGroup()
             freezerGroup()

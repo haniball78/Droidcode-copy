@@ -131,20 +131,46 @@ class SafetyMonitor(
         tweaksEnded = decision.tweaksAlreadyEnded
         warnedAt15 = decision.warnedAt15
         bridgeReported = decision.bridgeLostAlreadyReported
-        when (decision.action) {
+        val action = decision.action
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.sample(
+            null,
+            battery?.levelPercent ?: -1,
+            battery?.charging ?: false,
+            thermalStatus,
+            bridgeStatus?.name ?: "cached",
+            tweaksActive,
+            force = action != SafetyAction.NONE,
+            nowMs = now,
+        )
+        when (action) {
             SafetyAction.NONE -> Unit
             SafetyAction.WARN_BATTERY_15 -> {
                 val level = battery?.levelPercent ?: -1
+                com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                    "safety.monitor", "warn-battery-15",
+                    fields = mapOf("battery" to level.toString(), "thermal" to thermalStatus.toString()),
+                )
                 listener.onAlert("Battery at $level%: session tweaks will end at 10%.")
                 listener.onWarnBattery(level)
             }
             SafetyAction.END_TWEAKS -> {
                 tweaksActive = false
+                com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                    "safety.monitor", "end-tweaks",
+                    fields = mapOf(
+                        "battery" to (battery?.levelPercent ?: -1).toString(),
+                        "thermal" to thermalStatus.toString(),
+                    ),
+                )
                 listener.onAlert("Battery or heat safety: performance tweaks ended, game continues.")
                 listener.onEndTweaks("safety")
             }
             SafetyAction.STOP_WITH_COUNTDOWN -> startCountdown()
             SafetyAction.BRIDGE_LOST_RESTORE -> {
+                com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                    "safety.monitor", "bridge-lost-restore",
+                    fields = mapOf("bridge" to (bridgeStatus?.name ?: "unknown")),
+                )
                 listener.onAlert("Privileged bridge lost: restoring system settings, game continues.")
                 listener.onBridgeLost()
             }
@@ -155,6 +181,10 @@ class SafetyMonitor(
         if (countdownActive) return
         countdownActive = true
         countdownCancelled = false
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            "safety.monitor", "stop-countdown-started",
+            fields = mapOf("seconds" to countdownSeconds.toString()),
+        )
         Thread({
             var left = countdownSeconds
             while (left > 0 && !countdownCancelled) {

@@ -117,12 +117,17 @@ object SessionExit {
         gate.state == ExitState.TEARDOWN || gate.state == ExitState.RESTORING
 
     fun request(context: Context, reason: ExitReason, generation: Int = 0): Boolean {
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.attach(context)
         if (!SessionState.running) {
             SessionState.stopRequested = true
             return false
         }
         if (!gate.request(reason, generation)) return false
         mutableState.value = gate.state
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            context, "safety.exit", "requested",
+            fields = mapOf("reason" to reason.name, "generation" to generation.toString()),
+        )
         SessionService.stop(context)
         return true
     }
@@ -130,11 +135,18 @@ object SessionExit {
     fun beginDirect(reason: ExitReason, generation: Int = 0) {
         gate.request(reason, generation)
         mutableState.value = gate.state
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            "safety.exit", "requested",
+            fields = mapOf("reason" to reason.name, "generation" to generation.toString()),
+        )
     }
 
     fun beginTeardown(generation: Int = 0) {
         gate.beginTeardown(generation)
         mutableState.value = gate.state
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+            "safety.exit", "teardown-started", fields = mapOf("generation" to generation.toString()),
+        )
     }
 
     fun beginRestore(generation: Int = 0): Boolean {
@@ -146,11 +158,13 @@ object SessionExit {
     fun restoreSucceeded() {
         gate.restoreSucceeded()
         mutableState.value = gate.state
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log("safety.exit", "restore-done")
     }
 
     fun restoreFailed() {
         gate.restoreFailed()
         mutableState.value = gate.state
+        com.droiddeck.launcher.core.privileged.DiagnosticsLog.log("safety.exit", "restore-failed")
     }
 
     fun retryRestore(): Boolean {

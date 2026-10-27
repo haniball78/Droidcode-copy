@@ -233,6 +233,7 @@ internal object JournalRollback {
         val success: Boolean,
         val remaining: List<JournalItem>,
         val failedKey: String?,
+        val completed: List<JournalItem> = emptyList(),
     )
 
     fun rollback(
@@ -240,31 +241,33 @@ internal object JournalRollback {
         execute: (String) -> Int,
         readVerified: (JournalItem) -> String?,
     ): Result {
+        val completed = ArrayList<JournalItem>()
         for (index in items.indices.reversed()) {
             val item = items[index]
             if (execute(item.restoreCmd) != 0) {
-                return Result(false, items.subList(0, index + 1), item.key)
+                return Result(false, items.subList(0, index + 1), item.key, completed)
             }
             val verified = when (item.verifyMode) {
                 JournalVerifyMode.VALUE -> {
-                    val raw = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key)
+                    val raw = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key, completed)
                     SafetyChecks.parseBackgroundLimit(raw) == item.original
                 }
                 JournalVerifyMode.CONTAINS -> {
-                    val output = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key)
+                    val output = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key, completed)
                     output.contains(item.verifyExpect ?: "")
                 }
                 JournalVerifyMode.NOT_CONTAINS -> {
-                    val output = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key)
+                    val output = readVerified(item) ?: return Result(false, items.subList(0, index + 1), item.key, completed)
                     !output.contains(item.verifyExpect ?: "")
                 }
                 JournalVerifyMode.UNVERIFIED -> true
             }
             if (!verified) {
-                return Result(false, items.subList(0, index + 1), item.key)
+                return Result(false, items.subList(0, index + 1), item.key, completed)
             }
+            completed += item
         }
-        return Result(true, emptyList(), null)
+        return Result(true, emptyList(), null, completed)
     }
 }
 
@@ -308,7 +311,9 @@ object Tweaks {
                 ) return@synchronized false
             }
             val current = load(context) ?: return@synchronized false
-            save(context, JournalMerge.merge(current, items))
+            val saved = save(context, JournalMerge.merge(current, items))
+            DiagnosticsLog.log(context, "safety.journal", if (saved) "saved" else "save-failed", fields = mapOf("items" to items.size.toString()))
+            saved
         }
     }
 
@@ -330,6 +335,7 @@ object Tweaks {
         if (current.isEmpty()) {
             return AtomicStateFile.delete(journalFile(context))
         }
+        DiagnosticsLog.log(context, "safety.journal", "rollback-started", fields = mapOf("items" to current.size.toString()))
         val result = JournalRollback.rollback(
             current,
             execute = { cmd -> execChecked(context, cmd).exitCode },
@@ -342,6 +348,22 @@ object Tweaks {
                     if (result.exitCode != 0) null else result.output
                 }
             },
+        )
+        for (item in result.completed) {
+            DiagnosticsLog.log(
+                context, "safety.restore", "restored",
+                fields = mapOf(
+                    "key" to item.key,
+                    "verify" to if (item.verifyMode == JournalVerifyMode.UNVERIFIED) "unverified" else "verified",
+                ),
+            )
+        }
+        result.failedKey?.let { key ->
+            DiagnosticsLog.log(context, "safety.restore", "failed", fields = mapOf("key" to key, "verify" to "failed"))
+        }
+        DiagnosticsLog.log(
+            context, "safety.journal", if (result.success) "rollback-finished" else "rollback-failed",
+            fields = mapOf("restored" to result.completed.size.toString(), "remaining" to result.remaining.size.toString()),
         )
         if (result.success) {
             return AtomicStateFile.delete(journalFile(context))

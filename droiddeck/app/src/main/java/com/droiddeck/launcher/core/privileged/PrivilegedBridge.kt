@@ -135,20 +135,24 @@ object PrivilegedBridge {
     fun isPrivilegedAvailable(): Boolean = _status.value.isActive
 
     fun refresh(): PrivilegedStatus {
+        val previous = _status.value
         val (embMode, daemonUid, daemonPid) = probeEmbedded()
         if (embMode == PrivilegedMode.EMBEDDED_DAEMON) {
             val s = PrivilegedStatus(embMode, daemonUid, daemonPid)
             _status.value = s
+            if (!previous.isActive) DiagnosticsLog.log("adb.bridge", "restored", fields = mapOf("mode" to s.mode.name))
             return s
         }
         val (shizMode, shizVer) = probeShizuku()
         if (shizMode == PrivilegedMode.SHIZUKU_APP) {
             val s = PrivilegedStatus(shizMode, shizukuVersion = shizVer)
             _status.value = s
+            if (!previous.isActive) DiagnosticsLog.log("adb.bridge", "restored", fields = mapOf("mode" to s.mode.name))
             return s
         }
         val s = PrivilegedStatus(PrivilegedMode.NONE)
         _status.value = s
+        if (previous.isActive) DiagnosticsLog.log("adb.bridge", "lost", fields = mapOf("previous_mode" to previous.mode.name))
         return s
     }
 
@@ -172,11 +176,33 @@ object PrivilegedBridge {
         if (_status.value.mode == PrivilegedMode.NONE) {
             refresh()
         }
-        return when (_status.value.mode) {
+        val started = android.os.SystemClock.elapsedRealtime()
+        val result = when (_status.value.mode) {
             PrivilegedMode.EMBEDDED_DAEMON -> executeViaEmbeddedServer(command, timeoutMs)
             PrivilegedMode.SHIZUKU_APP     -> executeViaShizuku(command, timeoutMs)
             else -> PrivilegedResult(-1, "No privileged backend active.", PrivilegedMode.NONE)
         }
+        DiagnosticsLog.log(
+            "privileged.exec", if (result.exitCode == 0) "succeeded" else "failed",
+            fields = mapOf(
+                "kind" to classifyCommand(command),
+                "exit" to result.exitCode.toString(),
+                "duration_ms" to (android.os.SystemClock.elapsedRealtime() - started).toString(),
+            ),
+        )
+        return result
+    }
+
+    private fun classifyCommand(command: String): String = when {
+        command.startsWith("dumpsys deviceidle whitelist") -> "deviceidle-whitelist"
+        command.startsWith("cmd appops") -> "appops"
+        command.startsWith("cmd power") -> "power"
+        command.startsWith("device_config") -> "device-config"
+        command.startsWith("settings ") -> "settings"
+        command.startsWith("cmd game") -> "game-mode"
+        command.startsWith("cmd deviceidle") || command.startsWith("cmd package suspend") -> "app-freezer"
+        command.startsWith("pm grant") -> "grant"
+        else -> "shell"
     }
 
     fun ensureBackgroundProtection(context: Context): Boolean {
@@ -221,7 +247,9 @@ object PrivilegedBridge {
 
     fun armDeadMan(context: Context): Boolean {
         ensureSessionToken(context)
-        return deadManAction("ARM")
+        val armed = deadManAction("ARM")
+        DiagnosticsLog.log(context, "safety.deadman", if (armed) "armed" else "arm-failed")
+        return armed
     }
 
     fun beatDeadMan(): Boolean = deadManAction("BEAT")
@@ -230,7 +258,10 @@ object PrivilegedBridge {
 
     private fun deadManAction(action: String): Boolean {
         if (_status.value.mode != PrivilegedMode.EMBEDDED_DAEMON) return false
-        return runEmbeddedAction(action)
+        val result = runEmbeddedAction(action)
+        if (action == "BEAT" && !result) DiagnosticsLog.log("safety.deadman", "beat-failed")
+        if (action == "DISARM") DiagnosticsLog.log("safety.deadman", if (result) "disarm" else "disarm-failed")
+        return result
     }
 
     fun boostAndProtectSession(targetPid: Int): Boolean {
@@ -346,6 +377,7 @@ object PrivilegedBridge {
                 val encoded = Base64.encodeToString(command.toByteArray(StandardCharsets.UTF_8), Base64.NO_WRAP)
                 writer.println("EXEC:$encoded")
                 val resp = reader.readLine() ?: return PrivilegedResult(-1, "No response", PrivilegedMode.EMBEDDED_DAEMON)
+                if (resp == "UNAUTHORIZED") DiagnosticsLog.log("adb.bridge", "auth-failed", fields = mapOf("action" to "EXEC"))
                 if (resp.startsWith("EXIT:")) {
                     val parts = resp.split(":")
                     val exitCode = parts.getOrNull(1)?.toIntOrNull() ?: -1
@@ -389,7 +421,9 @@ object PrivilegedBridge {
                 val reader = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
                 sessionToken?.let { writer.println("AUTH:$it") }
                 writer.println(action)
-                reader.readLine() == "OK"
+                val reply = reader.readLine()
+                if (reply == "UNAUTHORIZED") DiagnosticsLog.log("adb.bridge", "auth-failed", fields = mapOf("action" to action))
+                reply == "OK"
             }
         } catch (_: Exception) { false }
     }

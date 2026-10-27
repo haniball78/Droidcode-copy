@@ -40,9 +40,11 @@ object RecoveryCoordinator {
         if (!running.compareAndSet(false, true)) return
         Thread({
             try {
-                attempt(appContext)
+                val ok = attempt(appContext)
+                DiagnosticsLog.log(appContext, "safety.restore", if (ok) "recovery-finished" else "recovery-failed")
             } catch (t: Throwable) {
                 Log.w(TAG, "recovery attempt failed", t)
+                DiagnosticsLog.log(appContext, "safety.restore", "recovery-failed", fields = mapOf("reason" to (t.javaClass.simpleName)))
             } finally {
                 running.set(false)
             }

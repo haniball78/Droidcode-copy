@@ -92,6 +92,7 @@ object DeviceBaselineCapture {
                 }
             }
         } catch (_: Exception) {
+            DiagnosticsLog.log(context, "baseline.capture", "failed", fields = mapOf("reason" to "adb-error"))
             return null
         }
         return save(context, entries, listOf("Captured through wireless ADB before the privileged daemon started."))
@@ -127,7 +128,17 @@ object DeviceBaselineCapture {
         runCatching { dir.mkdirs() }.onFailure { return null }
         val target = DeviceBaseline.resolveUniqueFile(dir, DeviceBaseline.fileName(now))
         val written = AtomicStateFile.save(target, text)
-        if (!written) return null
+        if (!written) {
+            DiagnosticsLog.log(appContext, "baseline.capture", "failed")
+            return null
+        }
+        DiagnosticsLog.log(
+            appContext, "baseline.capture", "succeeded",
+            fields = mapOf(
+                "readable" to entries.count { it.value != null }.toString(),
+                "unreadable" to entries.count { it.value == null }.toString(),
+            ),
+        )
         appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_CAPTURED, true)
             .putString(KEY_FILE, target.name)
