@@ -112,4 +112,15 @@ class DiagnosticsLogTest {
         assertEquals(2L, summary?.lines)
         assertEquals(2000L, summary?.lastWallMs)
     }
+
+    @Test
+    fun expandedDeviceChangeEventsRenderAsFlatFields() {
+        val line = DiagnosticsCore.render(3000L, 3L, "device.change", "daemon-start-steps", 0, mapOf("steps" to "phantom:0,grant-secure:0,grant-dump:0,grant-usage:0,whitelist:0,appops:0,starter:0"))
+        assertTrue(line.contains("\"device.change\""))
+        assertTrue(line.contains("daemon-start-steps"))
+        assertTrue(line.contains("grant-secure:0"))
+        val tier = DiagnosticsCore.render(3001L, 4L, "device.change", "governor-tier", 0, mapOf("tier" to "BALANCED_COOL", "limit" to "4"))
+        assertTrue(tier.contains("governor-tier"))
+        assertTrue(tier.contains("BALANCED_COOL"))
+    }
 }
