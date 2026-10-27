@@ -602,6 +602,13 @@ internal fun PhantomDisableCard(
 }
 
 @Composable
+private data class RepairRow(
+    val key: String,
+    val decision: com.droiddeck.launcher.core.privileged.RepairDecision,
+    val original: String?,
+    val current: String?,
+)
+
 private fun AdvancedSetupTab(
     host: MenuHost,
     s: FrontEndState,
@@ -827,6 +834,166 @@ private fun AdvancedSetupTab(
                         hasFile = com.droiddeck.launcher.core.privileged.DiagnosticsLog.file(ctx) != null
                     }
                 }
+            }
+        }
+    }
+
+    val repairCard: @Composable () -> Unit = {
+        var rows by remember { mutableStateOf<List<RepairRow>>(emptyList()) }
+        var scanned by remember { mutableStateOf(false) }
+        var bridgeActive by remember { mutableStateOf(false) }
+        var busy by remember { mutableStateOf(false) }
+        var report by remember { mutableStateOf<String?>(null) }
+        val doScan: () -> Unit = {
+            scope.launch(Dispatchers.IO) {
+                val active = privStatus.isActive
+                val snapshot = com.droiddeck.launcher.core.privileged.Tweaks.journalSnapshot(ctx)
+                val scannedRows = snapshot.map { item ->
+                    val current = if (active && item.verifyCmd != null) {
+                        val read = runCatching { com.droiddeck.launcher.core.privileged.PrivilegedBridge.executeChecked(item.verifyCmd) }.getOrNull()
+                        if (read != null && read.exitCode == 0) read.output else null
+                    } else {
+                        null
+                    }
+                    RepairRow(
+                        item.key,
+                        com.droiddeck.launcher.core.privileged.JournalRepair.classify(item, current),
+                        if (item.verifyMode == com.droiddeck.launcher.core.privileged.JournalVerifyMode.VALUE) item.original else null,
+                        if (item.verifyMode == com.droiddeck.launcher.core.privileged.JournalVerifyMode.VALUE && current != null) {
+                            com.droiddeck.launcher.core.privileged.SafetyChecks.parseBackgroundLimit(current)
+                        } else {
+                            null
+                        },
+                    )
+                }
+                scannedRows.forEach { row ->
+                    com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                        ctx, "device.repair", "scan",
+                        fields = mapOf("key" to row.key, "outcome" to row.decision.name),
+                    )
+                }
+                withContext(Dispatchers.Main) {
+                    rows = scannedRows
+                    scanned = true
+                    bridgeActive = active
+                    busy = false
+                }
+            }
+        }
+        val doRepair: () -> Unit = {
+            scope.launch(Dispatchers.IO) {
+                withContext(Dispatchers.Main) { busy = true }
+                val backedUp = com.droiddeck.launcher.core.privileged.Tweaks.backupJournal(ctx)
+                com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                    ctx, "device.repair", "backup",
+                    fields = mapOf("outcome" to if (backedUp) "ok" else "failed"),
+                )
+                if (!backedUp) {
+                    withContext(Dispatchers.Main) {
+                        report = ctx.getString(R.string.repair_backup_failed)
+                        busy = false
+                    }
+                    return@launch
+                }
+                var quarantined = 0
+                var resolved = 0
+                var retried = 0
+                var failed = 0
+                var skipped = 0
+                rows.forEach { row ->
+                    val outcome = when (row.decision) {
+                        com.droiddeck.launcher.core.privileged.RepairDecision.CORRUPT -> {
+                            if (com.droiddeck.launcher.core.privileged.Tweaks.quarantineKey(ctx, row.key)) {
+                                quarantined++
+                                "quarantined"
+                            } else {
+                                failed++
+                                "retry-failed"
+                            }
+                        }
+                        com.droiddeck.launcher.core.privileged.RepairDecision.ALREADY_OK -> {
+                            if (com.droiddeck.launcher.core.privileged.Tweaks.removeKey(ctx, row.key)) {
+                                resolved++
+                                "resolved"
+                            } else {
+                                failed++
+                                "retry-failed"
+                            }
+                        }
+                        com.droiddeck.launcher.core.privileged.RepairDecision.RETRY -> {
+                            if (com.droiddeck.launcher.core.privileged.Tweaks.rollbackOne(ctx, row.key)) {
+                                retried++
+                                "retried"
+                            } else {
+                                failed++
+                                "retry-failed"
+                            }
+                        }
+                        com.droiddeck.launcher.core.privileged.RepairDecision.UNREADABLE -> {
+                            skipped++
+                            "skipped"
+                        }
+                    }
+                    com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                        ctx, "device.repair", outcome,
+                        fields = mapOf("key" to row.key, "outcome" to outcome),
+                    )
+                }
+                withContext(Dispatchers.Main) {
+                    report = ctx.getString(R.string.repair_done) + " quarantined=$quarantined resolved=$resolved retried=$retried failed=$failed skipped=$skipped"
+                }
+                doScan()
+            }
+        }
+        val doReapply: () -> Unit = {
+            scope.launch(Dispatchers.IO) {
+                withContext(Dispatchers.Main) { busy = true }
+                com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                    ctx, "device.repair", "reapply-started",
+                )
+                val ok = com.droiddeck.launcher.core.privileged.PrivilegedBridge.ensureBackgroundProtection(ctx)
+                com.droiddeck.launcher.core.privileged.DiagnosticsLog.log(
+                    ctx, "device.repair", "reapply-finished",
+                    fields = mapOf("outcome" to ok.toString()),
+                )
+                withContext(Dispatchers.Main) {
+                    report = ctx.getString(R.string.repair_done) + " reapply=$ok"
+                    busy = false
+                }
+            }
+        }
+        SettingsGroup(stringResource(R.string.repair_title)) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (scanned && rows.isEmpty()) {
+                    Text(stringResource(R.string.repair_no_issues), fontSize = 13.sp, color = colors.onSurfaceVariant)
+                }
+                if (scanned && !bridgeActive) {
+                    Text(stringResource(R.string.repair_needs_bridge), fontSize = 13.sp, color = colors.onSurfaceVariant)
+                }
+                rows.forEach { row ->
+                    Text("${row.key} · ${row.decision.name}", fontSize = 13.sp, color = colors.onSurfaceVariant)
+                    if (row.decision != com.droiddeck.launcher.core.privileged.RepairDecision.CORRUPT && row.original != null) {
+                        Text("${row.original} → ${row.current ?: "—"}", fontSize = 13.sp, color = colors.onSurfaceVariant)
+                    }
+                }
+                Actions {
+                    SecondaryButton(stringResource(R.string.repair_scan), compact = true, enabled = !busy) {
+                        busy = true
+                        report = null
+                        doScan()
+                    }
+                    SecondaryButton(stringResource(R.string.repair_repair), compact = true, enabled = !busy && !s.sessionRunning && scanned && rows.isNotEmpty()) {
+                        doRepair()
+                    }
+                    SecondaryButton(stringResource(R.string.repair_reapply), compact = true, enabled = !busy && !s.sessionRunning) {
+                        doReapply()
+                    }
+                }
+                if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp))
+                if (s.sessionRunning) {
+                    Text(stringResource(R.string.repair_session_running), fontSize = 13.sp, color = colors.onSurfaceVariant)
+                }
+                report?.let { Text(it, fontSize = 13.sp, color = colors.onSurfaceVariant) }
             }
         }
     }
@@ -1057,6 +1224,7 @@ private fun AdvancedSetupTab(
                 phantomCard()
                 baselineCard()
                 diagnosticsCard()
+                repairCard()
                 privilegedCard()
                 gameModeGroup()
                 freezerGroup()
@@ -1073,6 +1241,7 @@ private fun AdvancedSetupTab(
             phantomCard()
             baselineCard()
             diagnosticsCard()
+            repairCard()
             privilegedCard()
             gameModeGroup()
             freezerGroup()

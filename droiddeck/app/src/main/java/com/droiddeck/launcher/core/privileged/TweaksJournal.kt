@@ -274,6 +274,28 @@ internal object JournalRollback {
     }
 }
 
+internal enum class RepairDecision {
+    CORRUPT,
+    ALREADY_OK,
+    RETRY,
+    UNREADABLE,
+}
+
+internal object JournalRepair {
+    fun classify(item: JournalItem, currentValue: String?): RepairDecision {
+        if (!SafetyChecks.isValidSettingValue(item.key, item.original) || item.restoreCmd.contains("Daemon error")) {
+            return RepairDecision.CORRUPT
+        }
+        if (currentValue == null) {
+            return RepairDecision.UNREADABLE
+        }
+        if (item.verifyMode == JournalVerifyMode.VALUE) {
+            return if (SafetyChecks.parseBackgroundLimit(currentValue) == item.original) RepairDecision.ALREADY_OK else RepairDecision.RETRY
+        }
+        return RepairDecision.RETRY
+    }
+}
+
 internal object JournalMerge {
     fun merge(current: List<JournalItem>, newItems: List<JournalItem>): List<JournalItem> {
         val merged = current.toMutableList()
@@ -287,6 +309,8 @@ internal object JournalMerge {
 object Tweaks {
     private const val TAG = "TweaksJournal"
     private const val JOURNAL_FILE = "safety-journal.json"
+    private const val REPAIR_BACKUP_FILE = "safety-journal-repair-backup.json"
+    private const val QUARANTINE_FILE = "safety-journal-quarantine.json"
     private val journalLock = Any()
 
     fun recoveryNeeded(context: Context): Boolean {
@@ -326,6 +350,57 @@ object Tweaks {
         return synchronized(journalLock) {
             val current = load(context) ?: return@synchronized false
             save(context, current.filter { it.key != key })
+        }
+    }
+
+    fun backupJournal(context: Context): Boolean {
+        return synchronized(journalLock) {
+            val dir = context.applicationContext.noBackupFilesDir
+            val file = journalFile(context)
+            val source = listOf(file, AtomicStateFile.bakFile(file), AtomicStateFile.tmpFile(file)).firstOrNull { it.exists() }
+                ?: return@synchronized true
+            val text = try {
+                source.readText()
+            } catch (_: Exception) {
+                return@synchronized false
+            }
+            AtomicStateFile.save(File(dir, REPAIR_BACKUP_FILE), text)
+        }
+    }
+
+    fun quarantineKey(context: Context, key: String): Boolean {
+        return synchronized(journalLock) {
+            val current = load(context) ?: return@synchronized false
+            val item = current.firstOrNull { it.key == key } ?: return@synchronized false
+            val quarantineFile = File(context.applicationContext.noBackupFilesDir, QUARANTINE_FILE)
+            val existing = AtomicStateFile.readRecovered(quarantineFile, JournalCodec::decode) ?: emptyList()
+            if (!AtomicStateFile.save(quarantineFile, JournalCodec.encode(existing + item))) return@synchronized false
+            save(context, current.filter { it.key != key })
+        }
+    }
+
+    fun rollbackOne(context: Context, key: String): Boolean {
+        return synchronized(journalLock) {
+            val current = load(context) ?: return@synchronized false
+            val item = current.firstOrNull { it.key == key } ?: return@synchronized false
+            val result = JournalRollback.rollback(
+                listOf(item),
+                execute = { cmd -> execChecked(context, cmd).exitCode },
+                readVerified = { verified ->
+                    val verifyCmd = verified.verifyCmd
+                    if (verifyCmd == null) {
+                        null
+                    } else {
+                        val read = execChecked(context, verifyCmd)
+                        if (read.exitCode != 0) null else read.output
+                    }
+                },
+            )
+            if (result.success) {
+                save(context, current.filter { it.key != key })
+            } else {
+                false
+            }
         }
     }
 
