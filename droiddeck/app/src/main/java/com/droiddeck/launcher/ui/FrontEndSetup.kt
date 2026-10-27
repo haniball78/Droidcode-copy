@@ -741,8 +741,9 @@ private fun AdvancedSetupTab(
                     },
                     fontSize = 13.sp, color = colors.onSurfaceVariant,
                 )
-                if (info.fileName != null) {
-                    Text(info.fileName, fontSize = 13.sp, color = colors.onSurfaceVariant)
+                val baselineFileName = info.fileName
+                if (baselineFileName != null) {
+                    Text(baselineFileName, fontSize = 13.sp, color = colors.onSurfaceVariant)
                 }
                 Actions {
                     SecondaryButton(stringResource(R.string.baseline_share), compact = true, enabled = info.captured) {
