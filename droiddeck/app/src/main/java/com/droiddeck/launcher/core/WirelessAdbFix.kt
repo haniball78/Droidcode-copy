@@ -234,6 +234,10 @@ object WirelessAdbFix {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 pair(context, LOOPBACK, port, pairingCode)
+                val baselinePort = localConnectPort(context)
+                if (baselinePort != null) {
+                    runCatching { com.droiddeck.launcher.core.privileged.DeviceBaselineCapture.ensureAfterPairing(context, LOOPBACK, baselinePort) }
+                }
                 kotlinx.coroutines.delay(800)
                 val connectPort = localConnectPort(context)
                     ?: error("Connect port not discovered. Ensure Wireless Debugging is active.")
@@ -249,6 +253,7 @@ object WirelessAdbFix {
 
     fun startPrivilegedDaemonWithSavedPairing(context: Context): Boolean {
         val appContext = context.applicationContext
+        runCatching { com.droiddeck.launcher.core.privileged.DeviceBaselineCapture.ensureViaSavedPairing(appContext) }
         val saved = savedConnection(appContext)
         val host = saved?.host ?: LOOPBACK
         // Always try to discover current live connect port first (since port changes on reboot / toggle)

@@ -729,6 +729,36 @@ private fun AdvancedSetupTab(
         PhantomDisableCard(host, s.phantomProcessStatus, a.onSetPhantomProcessLimit, a.onRefreshPhantomStatus)
     }
 
+    val baselineCard: @Composable () -> Unit = {
+        var info by remember { mutableStateOf(com.droiddeck.launcher.core.privileged.DeviceBaselineCapture.info(ctx)) }
+        SettingsGroup(stringResource(R.string.baseline_title)) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    if (info.captured) {
+                        stringResource(R.string.baseline_captured, java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(info.capturedAtMs)))
+                    } else {
+                        stringResource(R.string.baseline_not_captured)
+                    },
+                    fontSize = 13.sp, color = colors.onSurfaceVariant,
+                )
+                if (info.fileName != null) {
+                    Text(info.fileName, fontSize = 13.sp, color = colors.onSurfaceVariant)
+                }
+                Actions {
+                    SecondaryButton(stringResource(R.string.baseline_share), compact = true, enabled = info.captured) {
+                        val file = com.droiddeck.launcher.core.privileged.DeviceBaselineCapture.baselineFile(ctx)
+                        if (file != null) {
+                            com.droiddeck.launcher.core.privileged.DeviceBaselineCapture.shareIntent(ctx, file)?.let { ctx.startActivity(it) }
+                        }
+                    }
+                    SecondaryButton(stringResource(R.string.setup_check_again), compact = true) {
+                        info = com.droiddeck.launcher.core.privileged.DeviceBaselineCapture.info(ctx)
+                    }
+                }
+            }
+        }
+    }
+
     val privilegedCard: @Composable () -> Unit = {
         SettingsGroup(stringResource(R.string.setup_adv_group_privileged)) {
             CheckRow(
@@ -953,6 +983,7 @@ private fun AdvancedSetupTab(
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 masterControlCard()
                 phantomCard()
+                baselineCard()
                 privilegedCard()
                 gameModeGroup()
                 freezerGroup()
@@ -967,6 +998,7 @@ private fun AdvancedSetupTab(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             masterControlCard()
             phantomCard()
+            baselineCard()
             privilegedCard()
             gameModeGroup()
             freezerGroup()
