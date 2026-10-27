@@ -3201,4 +3201,13 @@
     <string name="diagnostics_note">هذا السجل لا يحتوي أبداً على رموز الاقتران أو رموز الخادم المميز أو كلمات المرور — بل يسجل ما حدث فقط، ليُرسل للتحليل.</string>
     <string name="diagnostics_toggle">تفعيل سجل التشخيص</string>
     <string name="diagnostics_delete">حذف أحدث ملف</string>
+    <string name="repair_title">إصلاح الإعدادات العالقة</string>
+    <string name="repair_scan">فحص السجل</string>
+    <string name="repair_repair">إصلاح</string>
+    <string name="repair_reapply">إعادة تطبيق الحماية</string>
+    <string name="repair_no_issues">لا توجد عناصر عالقة.</string>
+    <string name="repair_needs_bridge">الجسر غير نشط: تظهر العناصر غير مقروءة. وصّل الجسر المميز لقراءة القيم الحالية.</string>
+    <string name="repair_session_running">الإصلاح معطل أثناء تشغيل جلسة.</string>
+    <string name="repair_done">اكتمل الإصلاح.</string>
+    <string name="repair_backup_failed">فشل النسخ الاحتياطي. لم يتغير شيء.</string>
 </resources>
