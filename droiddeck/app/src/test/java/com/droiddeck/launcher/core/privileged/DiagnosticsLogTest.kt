@@ -106,8 +106,8 @@ class DiagnosticsLogTest {
     @Test
     fun summaryCountsLinesAndLastTimestamp() {
         val dir = tempDir()
-        DiagnosticsCore.append(dir, "droiddeck-diagnostics.jsonl", DiagnosticsCore.render(1000L, 1L, "a", "one", 0))
-        DiagnosticsCore.append(dir, "droiddeck-diagnostics.jsonl", DiagnosticsCore.render(2000L, 2L, "b", "two", 0))
+        DiagnosticsCore.append(dir, "droiddeck-diagnostics.jsonl", DiagnosticsCore.render(1000L, 1L, "a", "one", 0, emptyMap()))
+        DiagnosticsCore.append(dir, "droiddeck-diagnostics.jsonl", DiagnosticsCore.render(2000L, 2L, "b", "two", 0, emptyMap()))
         val summary = DiagnosticsCore.summary(dir, "droiddeck-diagnostics.jsonl")
         assertEquals(2L, summary?.lines)
         assertEquals(2000L, summary?.lastWallMs)
