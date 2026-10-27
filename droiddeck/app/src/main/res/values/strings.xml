@@ -3139,4 +3139,13 @@
     <string name="diagnostics_note">This log never contains pairing codes, daemon tokens, or passwords — only what happened, so it can be sent for analysis.</string>
     <string name="diagnostics_toggle">Enable diagnostics log</string>
     <string name="diagnostics_delete">Delete latest file</string>
+    <string name="repair_title">Repair stuck settings</string>
+    <string name="repair_scan">Scan journal</string>
+    <string name="repair_repair">Repair</string>
+    <string name="repair_reapply">Reapply protection</string>
+    <string name="repair_no_issues">No stuck items found.</string>
+    <string name="repair_needs_bridge">Bridge inactive: items are shown unreadable. Connect the privileged bridge to read current values.</string>
+    <string name="repair_session_running">Repair is disabled while a session is running.</string>
+    <string name="repair_done">Repair finished.</string>
+    <string name="repair_backup_failed">Backup failed. Nothing was changed.</string>
 </resources>
