@@ -91,7 +91,18 @@ object GameModeEngine {
 
         val items = mutableListOf<JournalItem>()
         if (!Tweaks.hasKey(context, "background_process_limit")) {
-            val resolvedBg = Preflight.resolveBackgroundLimitOriginal(exec(context, "settings get global background_process_limit"))
+            val bgRead = execChecked(context, "settings get global background_process_limit")
+            if (bgRead.exitCode != 0) {
+                Log.w(TAG, "apply aborted: background limit unreadable")
+                aggressiveActive = false
+                return "game mode: aborted (background limit unreadable)"
+            }
+            val resolvedBg = Preflight.resolveBackgroundLimitOriginal(bgRead.output)
+            if (!resolvedBg.valid) {
+                Log.w(TAG, "apply aborted: background limit invalid")
+                aggressiveActive = false
+                return "game mode: aborted (invalid background limit)"
+            }
             if (resolvedBg.leftoverDetected) {
                 Log.w(TAG, "preflight: suspected leftover background limit, apply aborted")
                 aggressiveActive = false
@@ -110,14 +121,26 @@ object GameModeEngine {
                 }
                 items.add(FixedPerformanceState.item(original, sessionGen))
             }
-            if (!Tweaks.hasKey(context, "sem_enhanced_cpu_responsiveness")) {
-                items.add(settingItem("sem_enhanced_cpu_responsiveness", Preflight.resolveSettingOriginal(exec(context, "settings get global sem_enhanced_cpu_responsiveness")), sessionGen))
-            }
-            if (!Tweaks.hasKey(context, "restricted_device_performance")) {
-                items.add(settingItem("restricted_device_performance", Preflight.resolveSettingOriginal(exec(context, "settings get global restricted_device_performance")), sessionGen))
-            }
-            if (!Tweaks.hasKey(context, "adaptive_battery_management_enabled")) {
-                items.add(settingItem("adaptive_battery_management_enabled", Preflight.resolveSettingOriginal(exec(context, "settings get global adaptive_battery_management_enabled")), sessionGen))
+            for ((key, readCmd) in listOf(
+                "sem_enhanced_cpu_responsiveness" to "settings get global sem_enhanced_cpu_responsiveness",
+                "restricted_device_performance" to "settings get global restricted_device_performance",
+                "adaptive_battery_management_enabled" to "settings get global adaptive_battery_management_enabled",
+            )) {
+                if (!Tweaks.hasKey(context, key)) {
+                    val read = execChecked(context, readCmd)
+                    if (read.exitCode != 0) {
+                        Log.w(TAG, "apply aborted: $key unreadable")
+                        aggressiveActive = false
+                        return "game mode: aborted ($key unreadable)"
+                    }
+                    val original = Preflight.resolveSettingOriginal(read.output)
+                    if (!SafetyChecks.isValidSettingValue(key, original)) {
+                        Log.w(TAG, "apply aborted: $key invalid")
+                        aggressiveActive = false
+                        return "game mode: aborted (invalid $key)"
+                    }
+                    items.add(settingItem(key, original, sessionGen))
+                }
             }
         }
         if (!Tweaks.recordItems(context, items)) {
@@ -168,7 +191,14 @@ object GameModeEngine {
         if (Tweaks.hasKey(context, "background_process_limit")) {
             return "suspect leftover: journal already records background limit"
         }
-        val resolved = Preflight.resolveBackgroundLimitOriginal(exec(context, "settings get global background_process_limit"))
+        val suspectRead = execChecked(context, "settings get global background_process_limit")
+        if (suspectRead.exitCode != 0) {
+            return "suspect leftover: current background limit unreadable"
+        }
+        val resolved = Preflight.resolveBackgroundLimitOriginal(suspectRead.output)
+        if (!resolved.valid) {
+            return "suspect leftover: current background limit invalid"
+        }
         if (!resolved.leftoverDetected) {
             return "suspect leftover: current background limit is clean"
         }

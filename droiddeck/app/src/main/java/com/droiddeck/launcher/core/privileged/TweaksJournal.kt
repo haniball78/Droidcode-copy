@@ -244,6 +244,9 @@ internal object JournalRollback {
         val completed = ArrayList<JournalItem>()
         for (index in items.indices.reversed()) {
             val item = items[index]
+            if (!SafetyChecks.isValidSettingValue(item.key, item.original) || item.restoreCmd.contains("Daemon error")) {
+                return Result(false, items.subList(0, index + 1), item.key, completed)
+            }
             if (execute(item.restoreCmd) != 0) {
                 return Result(false, items.subList(0, index + 1), item.key, completed)
             }

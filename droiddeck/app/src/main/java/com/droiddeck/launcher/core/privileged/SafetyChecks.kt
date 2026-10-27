@@ -17,6 +17,19 @@ internal object SafetyChecks {
         return value != null && value != "2" && value != "4"
     }
 
+    fun isValidBackgroundLimitValue(value: String?): Boolean {
+        return value == null || value.matches(Regex("^-?[0-9]+$"))
+    }
+
+    fun isValidSettingValue(key: String, value: String?): Boolean {
+        return when (key) {
+            "background_process_limit" -> isValidBackgroundLimitValue(value)
+            "sem_enhanced_cpu_responsiveness", "adaptive_battery_management_enabled" -> value == null || value == "0" || value == "1"
+            "restricted_device_performance" -> value == null || value.matches(Regex("^[0-9]+(,[0-9]+)*$"))
+            else -> value == null || value.isNotBlank()
+        }
+    }
+
     fun restoreVerified(exitCode: Int, expected: String?, actual: String?): Boolean {
         return exitCode == 0 && expected == actual
     }
@@ -85,11 +98,15 @@ internal object SafetyChecks {
 data class ResolvedOriginal(
     val original: String?,
     val leftoverDetected: Boolean,
+    val valid: Boolean = true,
 )
 
 internal object Preflight {
     fun resolveBackgroundLimitOriginal(rawOutput: String): ResolvedOriginal {
         val parsed = SafetyChecks.parseBackgroundLimit(rawOutput)
+        if (parsed != null && !SafetyChecks.isValidBackgroundLimitValue(parsed)) {
+            return ResolvedOriginal(null, false, false)
+        }
         return if (parsed != null && !SafetyChecks.isCleanBackgroundLimit(parsed)) {
             ResolvedOriginal(null, true)
         } else {
