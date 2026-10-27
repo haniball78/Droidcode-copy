@@ -601,7 +601,6 @@ internal fun PhantomDisableCard(
     }
 }
 
-@Composable
 private data class RepairRow(
     val key: String,
     val decision: com.droiddeck.launcher.core.privileged.RepairDecision,
@@ -609,6 +608,7 @@ private data class RepairRow(
     val current: String?,
 )
 
+@Composable
 private fun AdvancedSetupTab(
     host: MenuHost,
     s: FrontEndState,
