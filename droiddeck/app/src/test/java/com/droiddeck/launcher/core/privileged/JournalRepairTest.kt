@@ -62,6 +62,13 @@ class JournalRepairTest {
     }
 
     @Test
+    fun validNumericOriginalIsNeverCorrupt() {
+        val numeric = item("background_process_limit", "2", "settings put global background_process_limit 2 2>/dev/null")
+        assertEquals(RepairDecision.ALREADY_OK, JournalRepair.classify(numeric, "2"))
+        assertEquals(RepairDecision.RETRY, JournalRepair.classify(numeric, "4"))
+    }
+
+    @Test
     fun nonValueModeReadableIsRetryAndNullIsUnreadable() {
         val contains = item(
             "app-freezer-doze",
