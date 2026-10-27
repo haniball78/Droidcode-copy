@@ -67,4 +67,45 @@ class PreflightTest {
         assertTrue(RecoveryRetry.isIncreasing())
         assertTrue(RecoveryRetry.delaysMs.sum() <= 20000L)
     }
+
+    @Test
+    fun daemonErrorTextIsInvalidNotAnOriginal() {
+        val resolved = Preflight.resolveBackgroundLimitOriginal("Daemon error: failed to connect to /127.0.0.1 (port 28751) from /127.0.0.1 (port 46564) after 3000ms: isConnected failed: ECONNREFUSED (Connection refused)")
+        assertFalse(resolved.valid)
+        assertFalse(resolved.leftoverDetected)
+        assertEquals(null, resolved.original)
+    }
+
+    @Test
+    fun settingValidatorsRejectErrorText() {
+        assertFalse(SafetyChecks.isValidSettingValue("background_process_limit", "Daemon error: failed"))
+        assertTrue(SafetyChecks.isValidSettingValue("background_process_limit", "8"))
+        assertTrue(SafetyChecks.isValidSettingValue("background_process_limit", null))
+        assertFalse(SafetyChecks.isValidSettingValue("sem_enhanced_cpu_responsiveness", "2"))
+        assertTrue(SafetyChecks.isValidSettingValue("sem_enhanced_cpu_responsiveness", "1"))
+        assertFalse(SafetyChecks.isValidSettingValue("restricted_device_performance", "Daemon error"))
+        assertTrue(SafetyChecks.isValidSettingValue("restricted_device_performance", "1,0"))
+    }
+
+    @Test
+    fun rollbackNeverExecutesCorruptRestoreCommand() {
+        val corrupt = JournalItem(
+            "background_process_limit",
+            "Daemon error: failed to connect",
+            "settings put global background_process_limit Daemon error: failed 2>/dev/null",
+            "settings get global background_process_limit",
+            JournalVerifyMode.VALUE,
+            true,
+            1,
+        )
+        var executed = false
+        val result = JournalRollback.rollback(
+            listOf(corrupt),
+            execute = { executed = true; 0 },
+            readVerified = { "8" },
+        )
+        assertFalse(executed)
+        assertFalse(result.success)
+        assertEquals("background_process_limit", result.failedKey)
+    }
 }
