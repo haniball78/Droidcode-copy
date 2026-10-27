@@ -3133,4 +3133,10 @@
     <string name="baseline_captured">Captured: %1$s</string>
     <string name="baseline_not_captured">Not captured yet — it is created on the first launch after wireless debugging is connected.</string>
     <string name="baseline_share">Share baseline</string>
+    <string name="diagnostics_title">Diagnostics log</string>
+    <string name="diagnostics_summary">Latest event: %1$s · %2$d lines</string>
+    <string name="diagnostics_share">Share diagnostics log</string>
+    <string name="diagnostics_note">This log never contains pairing codes, daemon tokens, or passwords — only what happened, so it can be sent for analysis.</string>
+    <string name="diagnostics_toggle">Enable diagnostics log</string>
+    <string name="diagnostics_delete">Delete latest file</string>
 </resources>
