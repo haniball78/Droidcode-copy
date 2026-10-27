@@ -3195,4 +3195,10 @@
     <string name="baseline_captured">تم الالتقاط: %1$s</string>
     <string name="baseline_not_captured">لم يُلتقط بعد — يُنشأ عند أول تشغيل بعد الاتصال بتصحيح الأخطاء اللاسلكي.</string>
     <string name="baseline_share">مشاركة تقرير الحالة الأساسية</string>
+    <string name="diagnostics_title">سجل التشخيص</string>
+    <string name="diagnostics_summary">آخر حدث: %1$s · %2$d سطراً</string>
+    <string name="diagnostics_share">مشاركة سجل التشخيص</string>
+    <string name="diagnostics_note">هذا السجل لا يحتوي أبداً على رموز الاقتران أو رموز الخادم المميز أو كلمات المرور — بل يسجل ما حدث فقط، ليُرسل للتحليل.</string>
+    <string name="diagnostics_toggle">تفعيل سجل التشخيص</string>
+    <string name="diagnostics_delete">حذف أحدث ملف</string>
 </resources>
