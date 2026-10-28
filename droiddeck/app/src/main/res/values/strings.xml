@@ -3172,4 +3172,40 @@
     <string name="bnet_dl_queued">Waiting for the other Battle.net download…</string>
     <string name="bnet_dl_starting">Starting Blizzard\'s downloader…</string>
     <string name="bnet_dl_waiting">Waiting for Battle.net to close…</string>
+    <string name="stores_itch_load_more">Load more</string>
+    <string name="stores_itch_platform_android" translatable="false">Android</string>
+    <string name="stores_itch_platform_any">Any platform</string>
+    <string name="stores_itch_platform_ios" translatable="false">iOS</string>
+    <string name="stores_itch_platform_linux" translatable="false">Linux</string>
+    <string name="stores_itch_platform_macos" translatable="false">macOS</string>
+    <string name="stores_itch_platform_mobile_web">Mobile web</string>
+    <string name="stores_itch_platform_web" translatable="false">Web</string>
+    <string name="stores_itch_platform_windows" translatable="false">Windows</string>
+    <string name="stores_itch_price_any">Any price</string>
+    <string name="stores_itch_price_free">Free</string>
+    <string name="stores_itch_price_paid">Paid</string>
+    <string name="stores_itch_price_sale">On sale</string>
+    <string name="stores_itch_price_under_15">$15 or less</string>
+    <string name="stores_itch_price_under_5">$5 or less</string>
+    <string name="stores_itch_sort_new">Most recent</string>
+    <string name="stores_itch_sort_new_popular">New &amp; popular</string>
+    <string name="stores_itch_sort_popular">Popular</string>
+    <string name="stores_itch_sort_top_rated">Top rated</string>
+    <string name="stores_itch_sort_top_sellers">Top sellers</string>
+    <string name="stores_itch_tag_add">Add a tag</string>
+    <string name="stores_itch_tag_title">Filter by tag</string>
+    <string name="stores_itch_build_android" translatable="false">Android</string>
+    <string name="stores_itch_build_demo">Demo</string>
+    <string name="stores_itch_build_linux" translatable="false">Linux</string>
+    <string name="stores_itch_build_linux_soon">Not supported yet</string>
+    <string name="stores_itch_build_macos" translatable="false">macOS</string>
+    <string name="stores_itch_build_open">Open on itch.io</string>
+    <string name="stores_itch_build_web" translatable="false">Web</string>
+    <string name="stores_itch_build_windows" translatable="false">Windows</string>
+    <string name="stores_itch_pick_failed">Could not load the downloads from itch.io</string>
+    <string name="stores_itch_pick_none">No downloads found for this game</string>
+    <string name="stores_itch_pick_title">Choose a version</string>
+    <string name="memory_hud_gpu">GPU %1$s GB</string>
+    <string name="memory_hud_simple">RAM %1$s/%2$s GB · swap %3$s/%4$s GB</string>
+    <string name="memory_hud_split">game %1$s · DroidDeck %2$s · Android %3$s GB</string>
 </resources>

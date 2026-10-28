@@ -1188,6 +1188,18 @@ object SessionPrefs {
     fun battleNetNoSteamSet(context: Context): Boolean = prefs(context).getBoolean("battleNetNoSteamSet", false)
     fun setBattleNetNoSteamSet(context: Context) { prefs(context).edit().putBoolean("battleNetNoSteamSet", true).apply() }
 
+    const val MEMORY_HUD_OFF = "off"
+    const val MEMORY_HUD_SIMPLE = "simple"
+    const val MEMORY_HUD_ADVANCED = "advanced"
+
+    fun memoryHud(context: Context): String =
+        prefs(context).getString("memoryHud", MEMORY_HUD_OFF)
+            ?.takeIf { it == MEMORY_HUD_SIMPLE || it == MEMORY_HUD_ADVANCED } ?: MEMORY_HUD_OFF
+    fun setMemoryHud(context: Context, value: String) {
+        require(value == MEMORY_HUD_OFF || value == MEMORY_HUD_SIMPLE || value == MEMORY_HUD_ADVANCED)
+        prefs(context).edit().putString("memoryHud", value).apply()
+    }
+
     fun deckyZipWarningSeen(context: Context): Boolean = prefs(context).getBoolean(DECKY_ZIP_WARNING_SEEN, false)
 
     fun setDeckyZipWarningSeen(context: Context) {
