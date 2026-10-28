@@ -1494,15 +1494,15 @@ internal fun SyncBar(line: String) {
 private val CardStrip = 26.dp
 
 @Composable
-internal fun cardArtRequest(url: String?, cover: String?): coil.request.ImageRequest? {
+internal fun cardArtRequest(url: Any?, cover: Any?): coil.request.ImageRequest? {
     val ctx = LocalContext.current
-    val under = cover?.takeIf { it != url }
+    val under = (cover as? String)?.takeIf { it != url }
     return remember(url, under) {
         url?.let { coil.request.ImageRequest.Builder(ctx).data(it).apply { if (under != null) placeholderMemoryCacheKey(under) }.build() }
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
 private fun SmallTextButton(text: String, key: String = text, danger: Boolean = false, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val pal = LocalPalette.current
@@ -1524,6 +1524,7 @@ private fun SmallTextButton(text: String, key: String = text, danger: Boolean = 
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun CardFace(
     title: String, wide: Any?, tall: Any?, download: com.droiddeck.launcher.stores.download.DownloadEntry?, hot: Boolean, capsule: Boolean = false,
