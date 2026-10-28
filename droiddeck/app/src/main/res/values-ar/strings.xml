@@ -3210,4 +3210,21 @@
     <string name="repair_session_running">الإصلاح معطل أثناء تشغيل جلسة.</string>
     <string name="repair_done">اكتمل الإصلاح.</string>
     <string name="repair_backup_failed">فشل النسخ الاحتياطي. لم يتغير شيء.</string>
+    <string name="screen_key_bind">مفتاح</string>
+    <string name="screen_key_image">صورة</string>
+    <string name="screen_key_image_clear">مسح</string>
+    <string name="screen_key_opacity">العتامة</string>
+    <string name="screen_key_shape_circle">دائرة</string>
+    <string name="screen_key_shape_pill">كبسولة</string>
+    <string name="screen_key_shape_rect">مستطيل</string>
+    <string name="screen_key_shape_round">مستدير</string>
+    <string name="screen_key_shape_trigger">زناد</string>
+    <string name="screen_key_size">الحجم</string>
+    <string name="screen_key_text">نص</string>
+    <string name="screen_key_toggle">تبديل</string>
+    <string name="screen_key_type_button">مفتاح</string>
+    <string name="screen_keys_add">إضافة مفتاح</string>
+    <string name="screen_key_layout">التخطيط</string>
+    <string name="screen_key_layout_export">تصدير</string>
+    <string name="screen_key_layout_save">حفظ</string>
 </resources>

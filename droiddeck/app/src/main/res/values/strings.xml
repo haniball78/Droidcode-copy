@@ -3148,4 +3148,21 @@
     <string name="repair_session_running">Repair is disabled while a session is running.</string>
     <string name="repair_done">Repair finished.</string>
     <string name="repair_backup_failed">Backup failed. Nothing was changed.</string>
+    <string name="screen_key_bind">Bind</string>
+    <string name="screen_key_image">Image</string>
+    <string name="screen_key_image_clear">Clear</string>
+    <string name="screen_key_opacity">Alpha</string>
+    <string name="screen_key_shape_circle">Circle</string>
+    <string name="screen_key_shape_pill">Pill</string>
+    <string name="screen_key_shape_rect">Rect</string>
+    <string name="screen_key_shape_round">Round</string>
+    <string name="screen_key_shape_trigger">Trigger</string>
+    <string name="screen_key_size">Size</string>
+    <string name="screen_key_text">Text</string>
+    <string name="screen_key_toggle">Toggle</string>
+    <string name="screen_key_type_button">Key</string>
+    <string name="screen_keys_add">Add key</string>
+    <string name="screen_key_layout">Layout</string>
+    <string name="screen_key_layout_export">Export</string>
+    <string name="screen_key_layout_save">Save</string>
 </resources>
