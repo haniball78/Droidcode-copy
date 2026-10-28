@@ -1148,7 +1148,7 @@ private suspend fun <T> CompletableFuture<T>.await(): T =
     }
 
 @Composable
-private fun SectionLabel(title: String) {
+internal fun SectionLabel(title: String) {
     Text(
         headingUppercase(title), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp,
         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 2.dp),
@@ -1254,34 +1254,7 @@ internal fun StoreTheme(store: Store?, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalPalette provides p) { MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, content = content) }
 }
 
-@Composable
-private fun SmallTextButton(text: String, key: String = text, onClick: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val pal = LocalPalette.current
-    val src = remember { MutableInteractionSource() }
-    val hot = rememberHot(src)
-    Text(
-        text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (hot) colors.onBackground else colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.paneItem("btn:$key").clip(RoundedCornerShape(8.dp)).glideBorder(hot, RoundedCornerShape(8.dp), pal.signal)
-            .hoverable(src).clickable(interactionSource = src, indication = LocalIndication.current, role = Role.Button, onClick = onClick)
-            .controllerConfirm(onClick = onClick).padding(horizontal = 8.dp, vertical = 6.dp),
-    )
-}
 
-@Composable
-private fun HeaderIconButton(description: String, icon: androidx.compose.ui.graphics.vector.ImageVector, key: String, onClick: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val pal = LocalPalette.current
-    val src = remember { MutableInteractionSource() }
-    val hot = rememberHot(src)
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier.paneItem("btn:$key").size(32.dp).clip(CircleShape).background(if (hot) pal.signal.copy(alpha = 0.14f) else Color.Transparent)
-            .glideBorder(hot, CircleShape, pal.signal)
-            .hoverable(src).clickable(interactionSource = src, indication = LocalIndication.current, role = Role.Button, onClick = onClick)
-            .controllerConfirm(onClick = onClick),
-    ) { Icon(icon, description, tint = if (hot) pal.signal else colors.onSurfaceVariant, modifier = Modifier.size(18.dp)) }
-}
 
 @Composable
 private fun SortButton(s: FrontEndState, a: FrontEndActions) {
@@ -1457,8 +1430,8 @@ private fun LazyGridScope.storeGrid(games: List<CatalogItem>, empty: String, car
     else items(games, key = { it.key }, contentType = { "game" }) { card(it) }
 }
 
-private val CardWidth = 112.dp
-private val CapsuleWidth = 92.dp
+internal val CardWidth = 112.dp
+internal val CapsuleWidth = 92.dp
 
 @Composable
 private fun GameCard(
@@ -1500,7 +1473,7 @@ private fun GameCard(
     }
 }
 
-private fun syncCount(line: String): Pair<Int, Int>? {
+internal fun syncCount(line: String): Pair<Int, Int>? {
     val match = Regex("(\\d+)\\s*/\\s*(\\d+)").find(line) ?: return null
     val done = match.groupValues[1].toIntOrNull() ?: return null
     val total = match.groupValues[2].toIntOrNull()?.takeIf { it > 0 } ?: return null
@@ -1508,7 +1481,7 @@ private fun syncCount(line: String): Pair<Int, Int>? {
 }
 
 @Composable
-private fun SyncBar(line: String) {
+internal fun SyncBar(line: String) {
     val count = syncCount(line) ?: return
     val done = count.first
     val total = count.second
@@ -1531,7 +1504,7 @@ internal fun cardArtRequest(url: String?, cover: String?): coil.request.ImageReq
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun CardFace(
+internal fun CardFace(
     item: CatalogItem, download: com.droiddeck.launcher.stores.download.DownloadEntry?, hot: Boolean, capsule: Boolean = false,
     marker: @Composable () -> Unit,
 ) {

@@ -1295,7 +1295,7 @@ private fun FrameGenMenu(s: FrontEndState, a: FrontEndActions, host: MenuHost) {
 }
 
 @Composable
-internal fun LaunchSettings(s: FrontEndState, a: FrontEndActions, host: MenuHost, game: com.droiddeck.launcher.frontend.Library.SteamGame? = null) {
+internal fun LaunchSettings(s: FrontEndState, a: FrontEndActions, host: MenuHost, game: com.droiddeck.launcher.frontend.Library.SteamGame? = null, hopRail: String = "games") {
     val columns = if (LocalNarrowPane.current) 2 else 3
     val controller = a.controller
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1314,7 +1314,7 @@ internal fun LaunchSettings(s: FrontEndState, a: FrontEndActions, host: MenuHost
                 val at = Hops.sources["card:components"]
                 val open = { if (game == null) a.onComponents(true) else a.onGameComponents(game) }
                 if (at == null) open()
-                else Hops.go(HopOrigin("games", HOP_SURFACE_GAMES, null, "card:components", at, back, dest = "components", page = "components"), open)
+                else Hops.go(HopOrigin(hopRail, HOP_SURFACE_GAMES, null, "card:components", at, back, dest = "components", page = "components"), open)
             }
         }
         add { m ->

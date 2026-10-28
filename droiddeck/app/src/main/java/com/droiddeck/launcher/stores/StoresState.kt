@@ -65,6 +65,8 @@ object StoresState {
 
 
     private val backends = HashMap<Store, StoreBackend>()
+    private val libraryAsked = java.util.concurrent.ConcurrentHashMap<Store, Long>()
+    private const val LIBRARY_RETRY_MS = 60_000L
 
     private val searchSeq = java.util.concurrent.ConcurrentHashMap<Store, Int>()
 
@@ -97,6 +99,15 @@ object StoresState {
     }
 
     fun isSignedIn(store: Store): Boolean = accounts.containsKey(store)
+
+    fun loadLibrary(context: Context, store: Store) {
+            if (!isSignedIn(store) || library.containsKey(store)) return
+            val now = android.os.SystemClock.elapsedRealtime()
+            val asked = libraryAsked[store]
+            if (asked != null && now - asked < LIBRARY_RETRY_MS) return
+            libraryAsked[store] = now
+            backends[store]?.syncLibrary(context.applicationContext, false)
+        }
 
     fun notSignedInLine(store: Store): String =
         if (StoreAccounts.isUnavailable(store)) "${store.shortLabel} sign-in could not be read: try again."

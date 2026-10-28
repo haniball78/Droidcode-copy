@@ -3237,4 +3237,17 @@
     <string name="library_remove">Remove from Library</string>
     <string name="xbox_filter_cloud">Cloud</string>
     <string name="xbox_filter_game_pass" translatable="false">Game Pass</string>
+    <string name="stores_eyebrow_pass">available with %1$s</string>
+    <string name="stores_game_pass" translatable="false">PC Game Pass</string>
+    <string name="stores_xbox_close_first">Close this Xbox game before updating it.</string>
+    <string name="stores_xbox_manage">Manage content</string>
+    <string name="stores_xbox_update">Update / verify</string>
+    <string name="game_resource_guides">Guides</string>
+    <string name="game_resource_pcgw" translatable="false">PCGamingWiki</string>
+    <string name="game_resource_protondb" translatable="false">ProtonDB</string>
+    <string name="game_resource_protondb_detail">Linux / Proton compatibility reports</string>
+    <string name="game_resource_search">Web search</string>
+    <string name="game_resource_steam_cloud">Steam Cloud</string>
+    <string name="game_resource_steam_cloud_detail">For games with saves on your Steam account</string>
+    <string name="game_resources_browser">Opens in your browser</string>
 </resources>

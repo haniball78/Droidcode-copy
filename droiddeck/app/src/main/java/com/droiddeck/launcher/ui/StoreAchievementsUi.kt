@@ -449,3 +449,19 @@ private fun AchievementRowPreview() = PreviewSurface {
         AchievementRow(previewList[0], compact = true)
     }
 }
+
+internal fun AchievementsTab(label: String, state: AchievementsState, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val list = state.list
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = modifier.fillMaxWidth().tabPanel()) {
+        if (list.isNullOrEmpty()) {
+            Text(achievementsNote(state, label).orEmpty(), fontSize = 13.sp, color = colors.onSurfaceVariant, modifier = Modifier.readable().padding(4.dp))
+            return@Column
+        }
+        Box(Modifier.fillMaxWidth().readable().padding(4.dp)) { AchievementsProgress(state) }
+        for ((group, items) in groups(list)) {
+            AchievementGroupLabel(stringResource(group, items.size))
+            for (a in items) androidx.compose.runtime.key(a.id) { AchievementRow(a, compact = true) }
+        }
+    }
+}

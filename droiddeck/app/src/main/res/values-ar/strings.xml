@@ -3280,4 +3280,8 @@
     <string name="library_in">في المكتبة</string>
     <string name="library_remove">إزالة من المكتبة</string>
     <string name="xbox_filter_cloud">سحابية</string>
+    <string name="stores_eyebrow_pass">متاحة مع %1$s</string>
+    <string name="stores_xbox_close_first">أغلق لعبة Xbox هذه قبل تحديثها.</string>
+    <string name="stores_xbox_manage">إدارة المحتوى</string>
+    <string name="stores_xbox_update">تحديث / تحقق</string>
 </resources>

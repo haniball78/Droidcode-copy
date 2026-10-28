@@ -147,7 +147,7 @@ internal fun GamesPage(s: FrontEndState, a: FrontEndActions, selected: String, o
 }
 
 @Composable
-private fun GameFileFolderActions(s: FrontEndState, a: FrontEndActions) {
+internal fun GameFileFolderActions(s: FrontEndState, a: FrontEndActions) {
     if (s.shortcutPicker) return
     var open by remember { androidx.compose.runtime.mutableStateOf(false) }
     Box(Modifier.padding(top = 12.dp)) {
@@ -403,7 +403,7 @@ private fun GamesHeader(count: Int, x64: Boolean, onAdd: (() -> Unit)?, modifier
 }
 
 @Composable
-private fun ClientTag() {
+internal fun ClientTag() {
     Box(Modifier.testTag("games-client-x64")) { StateChip(stringResource(R.string.mode_client_arch_x64), ChipTone.PLAIN) }
 }
 
@@ -533,7 +533,7 @@ private fun EditGameButton(onClick: () -> Unit) {
 }
 
 @Composable
-private fun AddGameButton(onClick: () -> Unit) {
+internal fun AddGameButton(onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val pal = LocalPalette.current
     val src = remember { MutableInteractionSource() }
@@ -627,7 +627,7 @@ internal fun RuntimeChip(s: FrontEndState) = when {
 private fun lastPlayedText(lastPlayed: Long): String? =
     playedSpan(lastPlayed)?.let { stringResource(R.string.games_last_played, it.replaceFirstChar { c -> c.lowercase() }) }
 
-private fun playedSpan(lastPlayed: Long): String? {
+internal fun playedSpan(lastPlayed: Long): String? {
     if (lastPlayed <= 0L) return null
     return android.text.format.DateUtils.getRelativeTimeSpanString(
         lastPlayed * 1000L, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS,
@@ -635,7 +635,7 @@ private fun playedSpan(lastPlayed: Long): String? {
 }
 
 @Composable
-private fun libraryLabel(g: Library.SteamGame): String = when {
+internal fun libraryLabel(g: Library.SteamGame): String = when {
     g.library == Library.EPIC_LAUNCHER -> EpicClient.status.version?.substringBefore('+')?.let { stringResource(R.string.epic_client_version, it) } ?: ""
     g.library != Library.ADDED -> if (g.library == "internal") stringResource(R.string.games_internal) else g.library
     g.source != Library.ADDED -> stringResource(R.string.games_store_storage)
