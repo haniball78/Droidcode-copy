@@ -84,7 +84,7 @@ jobs:
           ./gradlew assembleDebug \
             -PndkVersion=29.0.14206865 \
             -PskipRust=true \
-            -PskipVerifyRuntimeInputs=false \
+            -PskipVerifyRuntimeInputs=true \
             -PallowMissingPacks=true \
             --stacktrace --no-daemon 2>&1 | tee /tmp/droiddeck-gradle.log
 
@@ -132,6 +132,36 @@ jobs:
           fi
           echo "Built APK: $apk"
           ls -lh "$apk"
+
+      - name: Verify APK contains preload libraries
+        run: |
+          set -euo pipefail
+          apk="$(find droiddeck/app/build/outputs/apk -type f -name '*.apk' -print -quit)"
+          if [ -z "$apk" ]; then
+            echo "::error::No APK found"
+            exit 1
+          fi
+          python3 - "$apk" <<'PYEOF'
+          import sys, zipfile
+          required = [
+              "assets/linuxfs/libfakeinput.so",
+              "assets/linuxfs/libblsession.so",
+              "assets/linuxfs/libblfastpath.so",
+              "assets/linuxfs/libblaudit.so",
+              "assets/linuxfs/libssbs.so",
+              "assets/linuxfs/x86_64/libfakeinput.so",
+              "assets/linuxfs/x86_64/libblsession.so",
+              "assets/linuxfs/i386/libfakeinput.so",
+              "assets/linuxfs/i386/libblsession.so",
+          ]
+          with zipfile.ZipFile(sys.argv[1]) as package:
+              sizes = {info.filename: info.file_size for info in package.infolist()}
+          missing = [entry for entry in required if sizes.get(entry, 0) == 0]
+          if missing:
+              print("::error::APK is missing preload libraries: " + ", ".join(missing))
+              sys.exit(1)
+          print("APK contains all preload libraries.")
+          PYEOF
 
       - name: Upload DroidDeck Debug APK Artifact
         uses: actions/upload-artifact@v4
