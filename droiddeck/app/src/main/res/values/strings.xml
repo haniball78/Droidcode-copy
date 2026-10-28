@@ -3328,4 +3328,6 @@
         <item quantity="one">%d app</item>
         <item quantity="other">%d apps</item>
     </plurals>
+    <string name="stores_itch_no_game">Could not find this game on itch.io</string>
+    <string name="stores_xbox_sign_in_again">Microsoft rejected the Xbox sign-in. Sign out of Xbox in Stores, sign in again, then resume.</string>
 </resources>

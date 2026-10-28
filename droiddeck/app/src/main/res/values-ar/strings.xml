@@ -3335,4 +3335,6 @@
         <item quantity="many">%d تطبيقًا</item>
         <item quantity="other">%d تطبيق</item>
     </plurals>
+    <string name="stores_itch_no_game">تعذر العثور على هذه اللعبة على itch.io</string>
+    <string name="stores_xbox_sign_in_again">رفضت Microsoft تسجيل الدخول إلى Xbox. سجّل الخروج من Xbox في المتاجر، ثم سجّل الدخول مجددًا، ثم استأنف.</string>
 </resources>
