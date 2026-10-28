@@ -62,12 +62,12 @@ jobs:
                 echo "Pull from $registry failed (attempt $attempt); retrying..."
                 sleep 30
               done
-              done
-              if [ -z "$pulled" ]; then
-                echo "::warning::Could not pre-pull debian:bullseye from any mirror; the x86 step will try the default registry."
-              else
-                echo "Using $pulled as $image"
-              fi
+            done
+            if [ -z "$pulled" ]; then
+              echo "::warning::Could not pre-pull debian:bullseye from any mirror; the x86 step will try the default registry."
+            else
+              echo "Using $pulled as $image"
+            fi
           fi
 
       - name: Prepare preload libraries (fake input / fast path)
@@ -168,30 +168,30 @@ jobs:
           python3 - "$apk" <<'PYEOF'
           import sys, zipfile
           required = [
-            "assets/linuxfs/libfakeinput.so",
-            "assets/linuxfs/libblsession.so",
-            "assets/linuxfs/libblfastpath.so",
-            "assets/linuxfs/libblaudit.so",
-            "assets/linuxfs/libssbs.so",
-            "assets/linuxfs/x86_64/libfakeinput.so",
-            "assets/linuxfs/x86_64/libblsession.so",
-            "assets/linuxfs/i386/libfakeinput.so",
-            "assets/linuxfs/i386/libblsession.so",
-            "assets/pulseaudio.tzst",
-            "lib/arm64-v8a/libdirectaudiorelay.so",
-            "assets/linuxfs/usr/local/bin/gamescope",
-            "assets/linuxfs/usr/local/lib/droiddeck-pipewire.tzst",
-            "assets/linuxfs/usr/local/bin/mangoapp",
-            "assets/linuxfs/usr/local/lib/droiddeck-msitools/msiinfo",
-            "assets/linuxfs/usr/local/lib/droiddeck-vr/droiddeck/bin/linuxarm64/driver_droiddeck.so",
-            "assets/linuxfs/usr/local/bin/droiddeck-desktop",
-            "assets/linuxfs/usr/local/bin/droiddeck-clipboard",
-            "assets/linuxfs/x86_64/libfaultreport.so",
-            "assets/linuxfs/i386/libfaultreport.so",
-            "assets/linuxfs/x86_64/libvulkan-thunk.so",
-            "assets/linuxfs/x86_64/libwebkitinput.so",
-            "assets/droiddeck-esync/index.json",
-            "assets/droiddeck-esync/index.json.sig",
+          "assets/linuxfs/libfakeinput.so",
+          "assets/linuxfs/libblsession.so",
+          "assets/linuxfs/libblfastpath.so",
+          "assets/linuxfs/libblaudit.so",
+          "assets/linuxfs/libssbs.so",
+          "assets/linuxfs/x86_64/libfakeinput.so",
+          "assets/linuxfs/x86_64/libblsession.so",
+          "assets/linuxfs/i386/libfakeinput.so",
+          "assets/linuxfs/i386/libblsession.so",
+          "assets/pulseaudio.tzst",
+          "lib/arm64-v8a/libdirectaudiorelay.so",
+          "assets/linuxfs/usr/local/bin/gamescope",
+          "assets/linuxfs/usr/local/lib/droiddeck-pipewire.tzst",
+          "assets/linuxfs/usr/local/bin/mangoapp",
+          "assets/linuxfs/usr/local/lib/droiddeck-msitools/msiinfo",
+          "assets/linuxfs/usr/local/lib/droiddeck-vr/droiddeck/bin/linuxarm64/driver_droiddeck.so",
+          "assets/linuxfs/usr/local/bin/droiddeck-desktop",
+          "assets/linuxfs/usr/local/bin/droiddeck-clipboard",
+          "assets/linuxfs/x86_64/libfaultreport.so",
+          "assets/linuxfs/i386/libfaultreport.so",
+          "assets/linuxfs/x86_64/libvulkan-thunk.so",
+          "assets/linuxfs/x86_64/libwebkitinput.so",
+          "assets/droiddeck-esync/index.json",
+          "assets/droiddeck-esync/index.json.sig",
           ]
           with zipfile.ZipFile(sys.argv[1]) as package:
             sizes = {info.filename: info.file_size for info in package.infolist()}
