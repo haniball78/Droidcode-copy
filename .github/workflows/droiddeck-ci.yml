@@ -44,6 +44,13 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./droiddeck/gradlew
 
+      - name: Prepare preload libraries (fake input / fast path)
+        run: |
+          set -euo pipefail
+          cd droiddeck
+          python3 tools/components/prepare.py arm64-preloads
+          python3 tools/components/prepare.py x86-preloads
+
       - name: Build DroidDeck Debug APK
         run: |
           set -o pipefail
@@ -51,7 +58,7 @@ jobs:
           ./gradlew assembleDebug \
             -PndkVersion=29.0.14206865 \
             -PskipRust=true \
-            -PskipVerifyRuntimeInputs=true \
+            -PskipVerifyRuntimeInputs=false \
             -PallowMissingPacks=true \
             --stacktrace --no-daemon 2>&1 | tee /tmp/droiddeck-gradle.log
 
