@@ -16,9 +16,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  xbox:
+      name: Xbox ARM64 backend
+          runs-on: ubuntu-24.04-arm
+              timeout-minutes: 30
+              
+                  steps:
+                        - name: Checkout repository
+                                uses: actions/checkout@v4
+                                
+                                      - name: Build Xbox backend
+                                              run: |
+                                                        set -euo pipefail
+                                                                  cd droiddeck
+                                                                            python3 tools/components/prepare.py xbox
+                                                                            
+                                                                                  - name: Upload Xbox backend
+                                                                                          uses: actions/upload-artifact@v4
+                                                                                                  with:
+                                                                                                            name: xbox-arm64
+                                                                                                                      path: droiddeck/app/src/main/assets/linuxfs/usr/local/lib/droiddeck-xbox
+                                                                                                                                retention-days: 14
+                                                                                                                                build:
     name: Build DroidDeck APK
-    runs-on: ubuntu-latest
+        needs: xbox
+        runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
@@ -92,13 +114,17 @@ jobs:
           python3 tools/components/prepare.py pulseaudio-source
           ANDROID_NDK_LATEST_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" python3 tools/components/prepare.py audio
 
-      - name: Prepare pack components and record runtime inputs (proot, comet, xbox, Quest drivers)
+      - name: Download Xbox backend from ARM build
+              uses: actions/download-artifact@v4
+                      with:
+                                name: xbox-arm64
+                                          path: droiddeck/app/src/main/assets/linuxfs/usr/local/lib/droiddeck-xbox
+                                          - name: Prepare pack components and record runtime inputs (proot, comet, Quest drivers)
         run: |
           set -euo pipefail
           cd droiddeck
           ANDROID_NDK_LATEST_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" python3 tools/components/prepare.py proot
           python3 tools/components/prepare.py comet
-          python3 tools/components/prepare.py xbox
           python3 tools/quest/build-driver.py "$ANDROID_SDK_ROOT/ndk/29.0.14206865"
           python3 tools/release/runtime_inputs.py record
 
