@@ -1220,6 +1220,62 @@ object SessionPrefs {
     fun gameDebugLogsEnabled(context: Context): Boolean =
         prefs(context).getBoolean("gameDebugLogsEnabled", false)
 
+    fun setGameDebugLogsEnabled(context: Context, on: Boolean): Boolean = synchronized(GameEnvironmentStore) {
+        setLogPreference(
+            context,
+            key = "gameDebugLogsEnabled",
+            oldValue = gameDebugLogsEnabled(context),
+            newValue = on,
+            newEffective = logsEnabled(context) && on && SessionPaths.currentSessionLogsRetained(context),
+        )
+    }
+
+    private fun setLogPreference(
+        context: Context,
+        key: String,
+        oldValue: Boolean,
+        newValue: Boolean,
+        newEffective: Boolean,
+    ): Boolean {
+        if (oldValue == newValue) return true
+        val saved = prefs(context)
+        val oldEffective = logsEnabled(context) && gameDebugLogsEnabled(context) &&
+            SessionPaths.currentSessionLogsRetained(context)
+        fun publish(value: Boolean) = GameEnvironmentStore.publish(context, gameDebugLogsOverride = value)
+        if (oldEffective == newEffective) {
+            if (saved.edit().putBoolean(key, newValue).commit()) return true
+            saved.edit().putBoolean(key, oldValue).commit()
+            return false
+        }
+        if (oldEffective && !newEffective) {
+            try {
+                publish(false)
+            } catch (e: Exception) {
+                android.util.Log.e("GameEnvironment", "Could not disable game diagnostics", e)
+                return false
+            }
+            if (saved.edit().putBoolean(key, newValue).commit()) return true
+            saved.edit().putBoolean(key, oldValue).commit()
+            runCatching { publish(oldEffective) }
+                .onFailure { android.util.Log.e("GameEnvironment", "Could not restore game diagnostics", it) }
+            return false
+        }
+        if (!saved.edit().putBoolean(key, newValue).commit()) {
+            saved.edit().putBoolean(key, oldValue).commit()
+            return false
+        }
+        return try {
+            publish(newEffective)
+            true
+        } catch (e: Exception) {
+            saved.edit().putBoolean(key, oldValue).commit()
+            runCatching { publish(oldEffective) }
+                .onFailure { android.util.Log.e("GameEnvironment", "Could not restore game diagnostics", it) }
+            android.util.Log.e("GameEnvironment", "Could not update game diagnostics", e)
+            false
+        }
+    }
+
     fun battleNetNoSteamSet(context: Context): Boolean = prefs(context).getBoolean("battleNetNoSteamSet", false)
     fun setBattleNetNoSteamSet(context: Context) { prefs(context).edit().putBoolean("battleNetNoSteamSet", true).apply() }
 

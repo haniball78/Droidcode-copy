@@ -59,7 +59,8 @@ object GameThreadHints {
     @Synchronized
     fun start(context: Context): String {
         if (!SessionPrefs.gameThreadHints(context)) return "game thread hints: off"
-        if (Build.VERSION.SDK_INT < 31) return "game thread hints: Android 12+ required"
+        // Measured on the Odin 3 (CQ8725S) only; another HAL may boost differently, or not at all.
+        if (Build.VERSION.SDK_INT < 31 || Build.SOC_MODEL != "CQ8725S") return "game thread hints: Odin 3 only"
         val hm = context.getSystemService(PerformanceHintManager::class.java)
             ?: return "game thread hints: no PerformanceHintManager"
         val pm = context.getSystemService(PowerManager::class.java)

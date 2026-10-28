@@ -2569,7 +2569,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             foldable = com.droiddeck.launcher.session.SessionDisplay.foldable(this),
             controllerConnected = PadBridge.anyControllerConnected() || SteamControllerBle.connected,
             keepWithController = unfoldedControlsWithController,
-            steamDeckPad = SessionState.mode == SessionService.MODE_STEAM && SessionState.deckPad,
+            gamepadAvailable = SessionState.mode == SessionService.MODE_STEAM && SessionState.deckPad,
             pip = pipUi || isInPictureInPictureMode,
             width = width,
             height = height,
