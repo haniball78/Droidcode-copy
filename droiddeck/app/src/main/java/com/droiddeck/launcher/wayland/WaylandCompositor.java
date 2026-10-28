@@ -284,6 +284,8 @@ public final class WaylandCompositor {
 
     public static native void nativeSetFpsLimit(int fps);
 
+    public static native void nativeSetRenderOnCommit(boolean on);
+
     public static native void nativeSetGpuTurbo(boolean on);
 
     public static native int nativeRaisePriority(int tid, int nice);
@@ -306,6 +308,15 @@ public final class WaylandCompositor {
     public static native String nativeFrameGenCapsReason();
 
     public static native float[] nativeFrameGenStats();
+
+    public static native long nativeHudFrameTimes(float[] out);
+
+    /** Stream mode: the scene is the Xbox Cloud Gaming native player's picture, handed over frame by frame. */
+    public static native void nativeStreamMode(boolean on);
+
+    public static native void nativeStreamFrame(android.hardware.HardwareBuffer buffer);
+
+    public static native int nativeStreamFrames();
 
     public static void sendPointerDelta(int dx, int dy) {
         if (dx == 0 && dy == 0) return;
