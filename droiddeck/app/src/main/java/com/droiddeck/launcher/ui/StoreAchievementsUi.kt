@@ -450,6 +450,7 @@ private fun AchievementRowPreview() = PreviewSurface {
     }
 }
 
+@Composable
 internal fun AchievementsTab(label: String, state: AchievementsState, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val list = state.list

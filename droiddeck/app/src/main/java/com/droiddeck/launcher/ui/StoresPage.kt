@@ -1469,7 +1469,7 @@ private fun GameCard(
             .clip(RoundedCornerShape(10.dp)).glideBorder(hot, RoundedCornerShape(10.dp), pal.signal, pal.line)
             .hoverable(src).clickable(role = androidx.compose.ui.semantics.Role.Button, interactionSource = src, indication = LocalIndication.current, onClick = open).controllerConfirm(onClick = open),
     ) {
-        CardFace(item, download, hot, capsule) { CardMarker(item, installed, download, compact = capsule) }
+        CardFace(item.title, item.imageUrl, item.tallImageUrl, download, hot, capsule) { CardMarker(item, installed, download, compact = capsule) }
     }
 }
 
@@ -1503,30 +1503,53 @@ internal fun cardArtRequest(url: String?, cover: String?): coil.request.ImageReq
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun SmallTextButton(text: String, key: String = text, danger: Boolean = false, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val pal = LocalPalette.current
+    val src = remember { MutableInteractionSource() }
+    val hot = rememberHot(src)
+    val shape = RoundedCornerShape(10.dp)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.paneItem("btn:$key").heightIn(min = 40.dp).clip(shape)
+            .background(if (hot) pal.signal.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.03f))
+            .glideBorder(hot, shape, pal.signal, pal.line2)
+            .hoverable(src).clickable(interactionSource = src, indication = LocalIndication.current, role = Role.Button, onClick = onClick)
+            .controllerConfirm(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            color = if (danger) colors.error else if (hot) colors.onBackground else colors.onSurfaceVariant,
+        )
+    }
+}
+
 @Composable
 internal fun CardFace(
-    item: CatalogItem, download: com.droiddeck.launcher.stores.download.DownloadEntry?, hot: Boolean, capsule: Boolean = false,
-    marker: @Composable () -> Unit,
+    title: String, wide: Any?, tall: Any?, download: com.droiddeck.launcher.stores.download.DownloadEntry?, hot: Boolean, capsule: Boolean = false,
+    dim: Boolean = false, badge: (@Composable BoxScope.() -> Unit)? = null, marker: @Composable () -> Unit,
 ) {
-    val url = if (capsule) item.tallImageUrl ?: item.imageUrl else item.imageUrl ?: item.tallImageUrl
-    val art = cardArtRequest(url, item.tallImageUrl)
+    val url = if (capsule) tall ?: wide else wide ?: tall
+    val art = cardArtRequest(url, tall)
     val blurs = android.os.Build.VERSION.SDK_INT >= 31
     var landscape by remember(url) { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val total = if (capsule) maxWidth * 7f / 5f + CardStrip else maxWidth * 9f / 16f + CardStrip
-        Box(Modifier.fillMaxWidth().height(total).background(Color(0xFF101318)).then(if (url == null) Modifier.background(artBrush(hueOf(item.title))) else Modifier)) {
+        Box(Modifier.fillMaxWidth().height(total).background(Color(0xFF101318)).then(if (url == null) Modifier.background(artBrush(hueOf(title))) else Modifier)) {
             if (art != null && capsule && landscape) {
                 // Stores without portrait covers (itch) would lose most of the art to a portrait crop.
                 AsyncImage(model = art, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize().blur(24.dp))
                 Spacer(Modifier.matchParentSize().background(Color.Black.copy(alpha = if (blurs) 0.35f else 0.7f)))
                 AsyncImage(model = art, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.matchParentSize().padding(bottom = CardStrip))
             } else if (art != null) AsyncImage(
-                model = art, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize(),
+                model = art, contentDescription = null, contentScale = if (capsule) ContentScale.Fit else ContentScale.Crop,
+                modifier = Modifier.matchParentSize().padding(bottom = if (capsule) CardStrip else 0.dp),
                 onSuccess = { r ->
                     val drawn = r.result.drawable
                     if (capsule && drawn.intrinsicWidth > 0 && drawn.intrinsicHeight > 0) landscape = drawn.intrinsicWidth > drawn.intrinsicHeight * 0.95f
                 },
             )
+            if (dim) Spacer(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.5f)))
             Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(CardStrip).clipToBounds()) {
                 if (art != null) AsyncImage(
                     model = art, contentDescription = null, contentScale = ContentScale.Crop,
@@ -1538,7 +1561,7 @@ internal fun CardFace(
                     modifier = Modifier.matchParentSize().padding(horizontal = 8.dp),
                 ) {
                     Text(
-                        item.title, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1,
+                        title, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1,
                         overflow = if (hot) TextOverflow.Clip else TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f).then(if (hot) Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 700, velocity = 40.dp) else Modifier),
                     )
@@ -1549,6 +1572,7 @@ internal fun CardFace(
             if (download != null) Box(Modifier.align(Alignment.BottomCenter).padding(start = 6.dp, end = 6.dp, bottom = CardStrip + 5.dp)) {
                 ProgressBarThin(download.fraction, paused = download.state == DownloadState.PAUSED, verify = download.stage == DownloadStage.VERIFY)
             }
+            badge?.invoke(this)
         }
     }
 }
