@@ -44,6 +44,32 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./droiddeck/gradlew
 
+      - name: Pre-pull Debian image from a mirror (avoid ECR rate limit)
+        run: |
+          set -euo pipefail
+          image="public.ecr.aws/docker/library/debian:bullseye"
+          if docker image inspect "$image" >/dev/null 2>&1; then
+            echo "Debian image already present locally."
+          else
+            pulled=""
+            for registry in docker.io/library/debian:bullseye mirror.gcr.io/library/debian:bullseye; do
+              for attempt in 1 2 3; do
+                if docker pull "$registry"; then
+                  docker tag "$registry" "$image"
+                  pulled="$registry"
+                  break 2
+                fi
+                echo "Pull from $registry failed (attempt $attempt); retrying..."
+                sleep 30
+              done
+            done
+            if [ -z "$pulled" ]; then
+              echo "::warning::Could not pre-pull debian:bullseye from any mirror; the x86 step will try the default registry."
+            else
+              echo "Using $pulled as $image"
+            fi
+          fi
+
       - name: Prepare preload libraries (fake input / fast path)
         run: |
           set -euo pipefail
