@@ -82,6 +82,7 @@ object RecoveryCoordinator {
             }
             if (Tweaks.rollback(appContext)) {
                 runCatching {
+                    PrivilegedBridge.ensureSessionToken(appContext)
                     PrivilegedBridge.executeChecked("settings delete global droiddeck_deadman_expired")
                 }
                 GameModeEngine.deleteLegacyMarker(appContext)
