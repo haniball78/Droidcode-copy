@@ -137,28 +137,6 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation"
             android:theme="@style/AppTheme" />
 
-        <activity
-            android:name=".FrontEndActivity"
-            android:exported="true"
-            android:screenOrientation="user"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <category android:name="android.intent.category.CAR_LAUNCHER" />
-                <data android:scheme="droiddeck" android:host="game" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.CREATE_SHORTCUT" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="com.droiddeck.launcher.LAUNCH_GAME" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.CAR_LAUNCHER" />
-            </intent-filter>
-        </activity>
 
         <activity
             android:name=".PinRequestActivity"
