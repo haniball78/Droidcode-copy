@@ -62,12 +62,12 @@ jobs:
                 echo "Pull from $registry failed (attempt $attempt); retrying..."
                 sleep 30
               done
-            done
-            if [ -z "$pulled" ]; then
-              echo "::warning::Could not pre-pull debian:bullseye from any mirror; the x86 step will try the default registry."
-            else
-              echo "Using $pulled as $image"
-            fi
+              done
+              if [ -z "$pulled" ]; then
+                echo "::warning::Could not pre-pull debian:bullseye from any mirror; the x86 step will try the default registry."
+              else
+                echo "Using $pulled as $image"
+              fi
           fi
 
       - name: Prepare preload libraries (fake input / fast path)
@@ -92,6 +92,16 @@ jobs:
           python3 tools/components/prepare.py pulseaudio-source
           ANDROID_NDK_LATEST_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" python3 tools/components/prepare.py audio
 
+      - name: Prepare pack components and record runtime inputs (proot, comet, xbox, Quest drivers)
+        run: |
+          set -euo pipefail
+          cd droiddeck
+          ANDROID_NDK_LATEST_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" python3 tools/components/prepare.py proot
+          python3 tools/components/prepare.py comet
+          python3 tools/components/prepare.py xbox
+          python3 tools/quest/build-driver.py "$ANDROID_SDK_ROOT/ndk/29.0.14206865"
+          python3 tools/release/runtime_inputs.py record
+
       - name: Build DroidDeck Debug APK
         run: |
           set -o pipefail
@@ -99,7 +109,6 @@ jobs:
           ./gradlew assembleDebug \
             -PndkVersion=29.0.14206865 \
             -PskipRust=true \
-            -PskipVerifyRuntimeInputs=true \
             -PallowMissingPacks=true \
             --stacktrace --no-daemon 2>&1 | tee /tmp/droiddeck-gradle.log
 
@@ -159,30 +168,30 @@ jobs:
           python3 - "$apk" <<'PYEOF'
           import sys, zipfile
           required = [
-              "assets/linuxfs/libfakeinput.so",
-              "assets/linuxfs/libblsession.so",
-              "assets/linuxfs/libblfastpath.so",
-              "assets/linuxfs/libblaudit.so",
-              "assets/linuxfs/libssbs.so",
-              "assets/linuxfs/x86_64/libfakeinput.so",
-              "assets/linuxfs/x86_64/libblsession.so",
-              "assets/linuxfs/i386/libfakeinput.so",
-              "assets/linuxfs/i386/libblsession.so",
-              "assets/pulseaudio.tzst",
-              "lib/arm64-v8a/libdirectaudiorelay.so",
-              "assets/linuxfs/usr/local/bin/gamescope",
-              "assets/linuxfs/usr/local/lib/droiddeck-pipewire.tzst",
-              "assets/linuxfs/usr/local/bin/mangoapp",
-              "assets/linuxfs/usr/local/lib/droiddeck-msitools/msiinfo",
-              "assets/linuxfs/usr/local/lib/droiddeck-vr/droiddeck/bin/linuxarm64/driver_droiddeck.so",
-              "assets/linuxfs/usr/local/bin/droiddeck-desktop",
-              "assets/linuxfs/usr/local/bin/droiddeck-clipboard",
-              "assets/linuxfs/x86_64/libfaultreport.so",
-              "assets/linuxfs/i386/libfaultreport.so",
-              "assets/linuxfs/x86_64/libvulkan-thunk.so",
-              "assets/linuxfs/x86_64/libwebkitinput.so",
-              "assets/droiddeck-esync/index.json",
-              "assets/droiddeck-esync/index.json.sig",
+            "assets/linuxfs/libfakeinput.so",
+            "assets/linuxfs/libblsession.so",
+            "assets/linuxfs/libblfastpath.so",
+            "assets/linuxfs/libblaudit.so",
+            "assets/linuxfs/libssbs.so",
+            "assets/linuxfs/x86_64/libfakeinput.so",
+            "assets/linuxfs/x86_64/libblsession.so",
+            "assets/linuxfs/i386/libfakeinput.so",
+            "assets/linuxfs/i386/libblsession.so",
+            "assets/pulseaudio.tzst",
+            "lib/arm64-v8a/libdirectaudiorelay.so",
+            "assets/linuxfs/usr/local/bin/gamescope",
+            "assets/linuxfs/usr/local/lib/droiddeck-pipewire.tzst",
+            "assets/linuxfs/usr/local/bin/mangoapp",
+            "assets/linuxfs/usr/local/lib/droiddeck-msitools/msiinfo",
+            "assets/linuxfs/usr/local/lib/droiddeck-vr/droiddeck/bin/linuxarm64/driver_droiddeck.so",
+            "assets/linuxfs/usr/local/bin/droiddeck-desktop",
+            "assets/linuxfs/usr/local/bin/droiddeck-clipboard",
+            "assets/linuxfs/x86_64/libfaultreport.so",
+            "assets/linuxfs/i386/libfaultreport.so",
+            "assets/linuxfs/x86_64/libvulkan-thunk.so",
+            "assets/linuxfs/x86_64/libwebkitinput.so",
+            "assets/droiddeck-esync/index.json",
+            "assets/droiddeck-esync/index.json.sig",
           ]
           with zipfile.ZipFile(sys.argv[1]) as package:
             sizes = {info.filename: info.file_size for info in package.infolist()}
@@ -192,6 +201,19 @@ jobs:
               sys.exit(1)
             print("APK contains all preload libraries.")
           PYEOF
+
+      - name: Build add-on packs and run repo gates
+        run: |
+          set -euo pipefail
+          cd droiddeck
+          apk="$(find app/build/outputs/apk -type f -name '*.apk' -print -quit)"
+          if [ -z "$apk" ]; then
+            echo "::error::No APK found"
+            exit 1
+          fi
+          bash tools/packs/build.sh app/build/packs
+          python3 tools/release/check_session_assets.py "$apk"
+          python3 tools/release/runtime_inputs.py apk "$apk"
 
       - name: Upload DroidDeck Debug APK Artifact
         uses: actions/upload-artifact@v4
