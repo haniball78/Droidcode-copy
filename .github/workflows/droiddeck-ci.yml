@@ -77,6 +77,13 @@ jobs:
           python3 tools/components/prepare.py arm64-preloads
           python3 tools/components/prepare.py x86-preloads
 
+      - name: Prepare runtime components (gamescope, PipeWire, MangoApp, MSI tools, VR, desktop, esync)
+        run: |
+          set -euo pipefail
+          cd droiddeck
+          ANDROID_NDK_LATEST_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865" python3 tools/components/prepare.py runtime
+          python3 tools/components/prepare.py esync
+
       - name: Prepare audio components (DirectAudio relay + PulseAudio sinks)
         run: |
           set -euo pipefail
@@ -163,14 +170,27 @@ jobs:
               "assets/linuxfs/i386/libblsession.so",
               "assets/pulseaudio.tzst",
               "lib/arm64-v8a/libdirectaudiorelay.so",
+              "assets/linuxfs/usr/local/bin/gamescope",
+              "assets/linuxfs/usr/local/lib/droiddeck-pipewire.tzst",
+              "assets/linuxfs/usr/local/bin/mangoapp",
+              "assets/linuxfs/usr/local/lib/droiddeck-msitools/msiinfo",
+              "assets/linuxfs/usr/local/lib/droiddeck-vr/droiddeck/bin/linuxarm64/driver_droiddeck.so",
+              "assets/linuxfs/usr/local/bin/droiddeck-desktop",
+              "assets/linuxfs/usr/local/bin/droiddeck-clipboard",
+              "assets/linuxfs/x86_64/libfaultreport.so",
+              "assets/linuxfs/i386/libfaultreport.so",
+              "assets/linuxfs/x86_64/libvulkan-thunk.so",
+              "assets/linuxfs/x86_64/libwebkitinput.so",
+              "assets/droiddeck-esync/index.json",
+              "assets/droiddeck-esync/index.json.sig",
           ]
           with zipfile.ZipFile(sys.argv[1]) as package:
-              sizes = {info.filename: info.file_size for info in package.infolist()}
-          missing = [entry for entry in required if sizes.get(entry, 0) == 0]
-          if missing:
+            sizes = {info.filename: info.file_size for info in package.infolist()}
+            missing = [entry for entry in required if sizes.get(entry, 0) == 0]
+            if missing:
               print("::error::APK is missing preload libraries: " + ", ".join(missing))
               sys.exit(1)
-          print("APK contains all preload libraries.")
+            print("APK contains all preload libraries.")
           PYEOF
 
       - name: Upload DroidDeck Debug APK Artifact
