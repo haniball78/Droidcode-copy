@@ -100,6 +100,8 @@ class SteamTouchControls(
 
     private class Finger(val element: Element?, var x: Float, var y: Float, val toolbar: Int = -1)
     private val fingers = HashMap<Int, Finger>()
+    private var forwardedPointerBits = 0
+    var onTouchMiss: ((MotionEvent) -> Unit)? = null
 
     private var editing = false
     private var editElements: MutableList<Element> = mutableListOf()
@@ -624,7 +626,17 @@ class SteamTouchControls(
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val x = event.getX(index)
                 val y = event.getY(index)
-                val e = hit(live(), x, y) ?: return event.actionMasked == MotionEvent.ACTION_POINTER_DOWN
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) forwardedPointerBits = 0
+                val e = hit(live(), x, y)
+                if (e == null) {
+                    if (event.actionMasked == MotionEvent.ACTION_DOWN) return false
+                    if (onTouchMiss != null) {
+                        forwardedPointerBits = forwardedPointerBits or (1 shl event.getPointerId(index))
+                        forwardPointers(event, forwardedPointerBits)
+                    }
+                    return true
+                }
+                if (forwardedPointerBits != 0) forwardPointers(event, forwardedPointerBits)
                 fingers[event.getPointerId(index)] = Finger(e, x, y)
                 if (feedback) performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
                 requestUnbufferedDispatch(event)
@@ -632,6 +644,7 @@ class SteamTouchControls(
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                if (forwardedPointerBits != 0) forwardPointers(event, forwardedPointerBits)
                 for (i in 0 until event.pointerCount) {
                     val f = fingers[event.getPointerId(i)] ?: continue
                     f.x = event.getX(i)
@@ -650,12 +663,14 @@ class SteamTouchControls(
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                 val id = event.getPointerId(index)
+                if (forwardedPointerBits != 0) forwardPointers(event, forwardedPointerBits)
+                forwardedPointerBits = if (event.actionMasked == MotionEvent.ACTION_CANCEL) 0 else forwardedPointerBits and (1 shl id).inv()
                 val f = fingers.remove(id)
                 if (event.actionMasked == MotionEvent.ACTION_CANCEL) fingers.clear()
                 val e = f?.element
                 if (event.actionMasked != MotionEvent.ACTION_CANCEL && e != null && reach(e, event.getX(index), event.getY(index)) <= 1.3f) {
                     when (e.type) {
-                        SteamTouchConfig.THUMB -> openMenu()
+                        SteamTouchConfig.THUMB -> { cancelForwarded(event); openMenu() }
                         SteamTouchConfig.KEYBOARD -> onKeyboard()
                         SteamTouchConfig.PASTE -> onPaste()
                     }
@@ -667,6 +682,25 @@ class SteamTouchControls(
         return true
     }
 
+
+    private fun cancelForwarded(event: MotionEvent) {
+        val split = event.pointerSubset(forwardedPointerBits).also { forwardedPointerBits = 0 } ?: return
+        split.action = MotionEvent.ACTION_CANCEL
+        try {
+            onTouchMiss?.invoke(split)
+        } finally {
+            split.recycle()
+        }
+    }
+
+    private fun forwardPointers(event: MotionEvent, pointerIdBits: Int) {
+        val split = event.pointerSubset(pointerIdBits) ?: return
+        try {
+            onTouchMiss?.invoke(split)
+        } finally {
+            split.recycle()
+        }
+    }
 
     val isEditing get() = editing
 

@@ -67,6 +67,7 @@ import com.droiddeck.launcher.gpu.ScreenEffects
 import com.droiddeck.launcher.gpu.Lossless
 import com.droiddeck.launcher.gpu.TurnipDriver
 import com.droiddeck.launcher.input.EvdevKeys
+import com.droiddeck.launcher.input.GestureTouchStreamGate
 import com.droiddeck.launcher.input.InputSpace
 import com.droiddeck.launcher.input.KeyboardHost
 import com.droiddeck.launcher.input.ControllerPrefs
@@ -202,6 +203,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private var gesturePointerX = 0f
     private var gesturePointerY = 0f
     private var gesturePointerReady = false
+    private val gestureTouchStreamGate = GestureTouchStreamGate()
     private val clearRecognizedGesture = Runnable { recognizedGesture = null }
     private val gestureKeysDown = mutableSetOf<Int>()
     private lateinit var scrollTouch: ScrollTouchGestures
@@ -533,7 +535,14 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             uiHandler.removeCallbacks(cursorHide)
             cursorVisible = false
         }
-        onScreenControls = OnScreenControls(this, bridge, onKeyboard = ::togglePcKeyboard).also { root.addView(it) }
+        onScreenControls = OnScreenControls(this, bridge, onKeyboard = ::togglePcKeyboard).also { controls ->
+            controls.onTouchMiss = miss@{ event ->
+                if (!gestureTouchStreamGate.accepts(GestureTouchStreamGate.Source.ON_SCREEN_CONTROLS, event)) return@miss
+                event.offsetLocation(controls.left - surfaceView.left.toFloat(), controls.top - surfaceView.top.toFloat())
+                onTouchEvent(event)
+            }
+            root.addView(controls)
+        }
         keyboard = KeyboardHost(this).also { root.addView(it) }
         touchpad = TouchpadGestures(PointerGestures.slop(this), pointerListener)
         directTouchHold = DirectTouchHold(PointerGestures.slop(this), pointerListener) {
@@ -548,7 +557,11 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         // game surface and on-screen buttons, in either finger-down order.
         root.isMotionEventSplittingEnabled = true
         surfaceView.setOnTouchListener { _, event ->
-            routedTouchMode == SessionPrefs.TOUCH_GESTURES && onTouchEvent(event)
+            if (!event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) {
+                false
+            } else if (!gestureTouchStreamGate.accepts(GestureTouchStreamGate.Source.SURFACE, event)) {
+                false
+            } else onTouchEvent(event)
         }
         padMouse = PadMouse(padMouseListener)
         bridge.setTouchRoute(object : PadBridge.TouchRoute {
@@ -2832,6 +2845,11 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         view.onSaved = {
             device.plugged = false
             uiHandler.postDelayed({ updateOnScreenControls() }, 700)
+        }
+        view.onTouchMiss = miss@{ event ->
+            if (!gestureTouchStreamGate.accepts(GestureTouchStreamGate.Source.ON_SCREEN_CONTROLS, event)) return@miss
+            event.offsetLocation(view.left - surfaceView.left.toFloat(), view.top - surfaceView.top.toFloat())
+            onTouchEvent(event)
         }
         root.addView(view, root.indexOfChild(onScreenControls) + 1)
         steamTouchControls = view
