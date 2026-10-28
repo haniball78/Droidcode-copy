@@ -66,6 +66,7 @@ import com.droiddeck.launcher.gpu.ScreenEffectLooks
 import com.droiddeck.launcher.gpu.ScreenEffects
 import com.droiddeck.launcher.gpu.Lossless
 import com.droiddeck.launcher.gpu.TurnipDriver
+import com.droiddeck.launcher.input.BackQamInput
 import com.droiddeck.launcher.input.EvdevKeys
 import com.droiddeck.launcher.input.GestureTouchStreamGate
 import com.droiddeck.launcher.input.InputSpace
@@ -246,6 +247,11 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     private val cursorResync = Runnable { if (syncClientCursor() && clientHidesCursor) cursorVisible = false }
     private val uiHandler = Handler(Looper.getMainLooper())
     private var pendingBackAction: Runnable? = null
+    private val backQamInput = BackQamInput(
+        setPressed = { padBridge?.setBackQamPressed(it) },
+        onTap = { performBackAction(double = it) },
+        onCancel = { padBridge?.cancelBackQam() },
+    )
     private var drawerDirectionKey = KeyEvent.KEYCODE_UNKNOWN
     private var drawerDirectionDownTime = 0L
     private var drawerDirectionDeviceId = -1
@@ -432,6 +438,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         }
         override fun onInputDeviceRemoved(deviceId: Int) {
             Log.i(TAG, "input device $deviceId disconnected")
+            backQamInput.onDeviceRemoved(deviceId)
             joyConVr?.refresh()
             padBridge?.onDeviceRemoved(deviceId)
             if (::padMouse.isInitialized) padMouse.reset()
@@ -511,6 +518,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         bridge.setSelectSteam(ControllerPrefs.read(this).selectSteam)
         bridge.setBuiltinPad(SessionState.mode != SessionService.MODE_STEAM || SessionPrefs.builtinPad(this))
         padBridge = bridge
+        bridge.setOnChordInput(backQamInput::onChordInput)
         SessionState.padBridge = bridge
         if (Build.VERSION.SDK_INT >= 31) {
             val vr = com.droiddeck.launcher.input.JoyConVr(this, File(filesDir, ".wayland-rt/${com.droiddeck.launcher.input.JoyConVr.FILE}")) { taken, released ->
@@ -2134,8 +2142,17 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
             }
             return true
         }
+        val backToQam = !pipUi && !drawerOpen && !pcKeyboardOpen && !achievementsOpen &&
+            !gestureSettingsOpen && SessionState.mode == SessionService.MODE_STEAM && SessionState.running &&
+            SessionState.firstFrameSeen && !SessionState.suspended && padBridge?.canHoldQam() == true
+        if (backQamInput.onKeyEvent(event, backToQam)) {
+            pendingBackAction?.let(uiHandler::removeCallbacks)
+            pendingBackAction = null
+            return true
+        }
         val resumeKey = event.keyCode == KeyEvent.KEYCODE_BUTTON_A || event.keyCode == KeyEvent.KEYCODE_BUTTON_START ||
-            event.keyCode == KeyEvent.KEYCODE_BUTTON_MODE || event.keyCode == KeyEvent.KEYCODE_HOME
+            event.keyCode == KeyEvent.KEYCODE_BUTTON_MODE || event.keyCode == KeyEvent.KEYCODE_HOME ||
+            event.keyCode == KeyEvent.KEYCODE_MOVE_HOME
         val resumeKeyId = event.deviceId to event.keyCode
         if (fromController && resumeKey && (SessionState.suspended || resumeKeyId in resumeKeysDown)) {
             if (event.action == KeyEvent.ACTION_DOWN) {
@@ -3149,6 +3166,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         achievementsOpen = false
         (getSystemService(INPUT_SERVICE) as? InputManager)?.unregisterInputDeviceListener(deviceListener)
         releaseDrawerDirection()
+        backQamInput.cancel()
         onScreenControls?.releaseAll()
         if (::scrollTouch.isInitialized) scrollTouch.cancel()
         if (::padMouse.isInitialized) padMouse.reset()
@@ -3521,6 +3539,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (!hasFocus && ::padMouse.isInitialized) padMouse.reset()
+        if (!hasFocus) backQamInput.cancel()
         if (runtimeRemovalBlocked) return
         if (!hasFocus) {
             if (::touchscreenGestures.isInitialized) touchscreenGestures.cancel()
@@ -3572,6 +3591,7 @@ class SessionActivity : ComponentActivity(), SurfaceHolder.Callback {
         releaseDrawerDirection()
         pendingBackAction?.let(uiHandler::removeCallbacks)
         pendingBackAction = null
+        backQamInput.cancel()
         if (::pip.isInitialized) pip.destroyed()
         closeSecondScreen(reset = false)
         glassesScope.cancel()

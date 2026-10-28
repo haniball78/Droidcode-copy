@@ -60,6 +60,9 @@ public final class PadBridge {
     private final PadState routedTouch = new PadState();
     private boolean systemGuidePressed;
     private boolean systemQamPressed;
+    private boolean backQamPressed;
+    private boolean homeGuidePressed;
+    private Runnable onChordInput;
     private boolean qamChordActive;
     private int chordButton = -1;
     private boolean chordButtonPressed;
@@ -214,6 +217,7 @@ public final class PadBridge {
             case KeyEvent.KEYCODE_BACK:
             case KeyEvent.KEYCODE_MENU:
             case KeyEvent.KEYCODE_HOME:
+            case KeyEvent.KEYCODE_MOVE_HOME:
                 if (!isFromController(device)) return false;
                 return device.supportsSource(InputDevice.SOURCE_GAMEPAD)
                         || device.getKeyboardType() != InputDevice.KEYBOARD_TYPE_ALPHABETIC
@@ -247,6 +251,7 @@ public final class PadBridge {
             case KeyEvent.KEYCODE_DPAD_RIGHT:
             case KeyEvent.KEYCODE_BACK:
             case KeyEvent.KEYCODE_HOME:
+            case KeyEvent.KEYCODE_MOVE_HOME:
             case KeyEvent.KEYCODE_MENU: return true;
             default: return false;
         }
@@ -270,6 +275,14 @@ public final class PadBridge {
 
     public void setOnPlayerInput(Runnable listener) {
         onPlayerInput = listener;
+    }
+
+    public synchronized void setOnChordInput(Runnable listener) {
+        onChordInput = listener;
+    }
+
+    private void noteChordInput(int slot) {
+        if (slot == 0 && onChordInput != null) onChordInput.run();
     }
 
     private void notePlayerInput() {
@@ -306,7 +319,8 @@ public final class PadBridge {
             case KeyEvent.KEYCODE_BUTTON_THUMBL: pad.press(8, pressed); break;
             case KeyEvent.KEYCODE_BUTTON_THUMBR: pad.press(9, pressed); break;
             case KeyEvent.KEYCODE_BUTTON_MODE:
-            case KeyEvent.KEYCODE_HOME: pad.press(PadState.GUIDE, pressed); break;
+            case KeyEvent.KEYCODE_HOME:
+            case KeyEvent.KEYCODE_MOVE_HOME: pad.press(PadState.GUIDE, pressed); break;
             case KeyEvent.KEYCODE_BUTTON_Z:
                 if (isPrimary(event)) DeckControls.INSTANCE.setGrip(DeckControls.L4, pressed);
                 break;
@@ -322,6 +336,7 @@ public final class PadBridge {
             default: return false;
         }
         noteDevice(event.getDevice(), slot);
+        if (pressed && event.getRepeatCount() == 0 && !event.isCanceled()) noteChordInput(slot);
         if (pressed) notePlayerInput();
         statButtons++;
         scheduleStats();
@@ -351,6 +366,7 @@ public final class PadBridge {
                 pad.rightX = x;
                 pad.rightY = y;
             }
+            if (x != 0f || y != 0f) noteChordInput(slot);
             if (Math.max(Math.abs(x), Math.abs(y)) > 0.5f) notePlayerInput();
             publish(slot);
             return true;
@@ -381,6 +397,8 @@ public final class PadBridge {
             pad.up = hatY < -0.5f;
             pad.down = hatY > 0.5f;
         }
+        if (pad.leftX != 0f || pad.leftY != 0f || pad.rightX != 0f || pad.rightY != 0f
+                || lt > 0f || rt > 0f || pad.up || pad.right || pad.down || pad.left) noteChordInput(slot);
         if (Math.max(Math.max(Math.abs(pad.leftX), Math.abs(pad.leftY)), Math.max(Math.abs(pad.rightX), Math.abs(pad.rightY))) > 0.5f
                 || lt > 0.5f || rt > 0.5f || pad.up || pad.right || pad.down || pad.left) {
             notePlayerInput();
@@ -454,6 +472,37 @@ public final class PadBridge {
         systemQamPressed = qamPressed;
         if (qamStarted && !nativeQam()) startChord(PadState.A);
         else publish();
+    }
+
+    public boolean canHoldQam() {
+        return builtinPad && nativeQam();
+    }
+
+    public synchronized void setBackQamPressed(boolean pressed) {
+        if (pressed && !canHoldQam()) return;
+        if (backQamPressed == pressed) return;
+        backQamPressed = pressed;
+        setSystemButtons(systemGuidePressed, pressed);
+    }
+
+    public synchronized void cancelBackQam() {
+        if (!backQamPressed) return;
+        backQamPressed = false;
+        qamChordGeneration++;
+        setSystemButtons(systemGuidePressed, false);
+    }
+
+    public synchronized void setHomeGuidePressed(boolean pressed) {
+        if (homeGuidePressed == pressed) return;
+        homeGuidePressed = pressed;
+        setSystemButtons(pressed, systemQamPressed);
+    }
+
+    public synchronized void cancelHomeGuide() {
+        if (!homeGuidePressed) return;
+        homeGuidePressed = false;
+        qamChordGeneration++;
+        setSystemButtons(false, systemQamPressed);
     }
 
     public synchronized void releaseAll() {
