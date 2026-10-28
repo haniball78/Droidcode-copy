@@ -368,7 +368,7 @@ object AddedGameArt {
         return pickStoreResult(name, (0 until items.length()).map { items.getJSONObject(it) }.map { it.optString("id") to it.optString("name") })
     }
 
-    private fun download(id: String, cache: File, slots: Set<Slot>): Boolean {
+    internal fun download(id: String, cache: File, slots: Set<Slot> = Slot.entries.toSet()): Boolean {
         var got = false
         for ((slot, remote, localName) in listOf(
             Triple(Slot.COVER, "library_600x900.jpg", "p.jpg"), Triple(Slot.WIDE, "header.jpg", "header.jpg"),

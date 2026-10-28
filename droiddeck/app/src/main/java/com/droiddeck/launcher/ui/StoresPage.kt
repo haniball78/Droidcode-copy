@@ -1221,6 +1221,7 @@ internal fun storePalette(base: Palette, store: Store?): Palette {
         Store.AMAZON -> Color(0xFFFF9900) to Color(0xFFE07800)
         Store.XBOX -> Color(0xFF70C850) to Color(0xFF107C10)
         Store.ITCH -> Color(0xFFFF5C5C) to Color(0xFFD93B3B)
+        Store.BATTLENET -> Color(0xFF148EFF) to Color(0xFF0B6BD3)
         null -> return base
     }
     val on = if (accent.luminance() > 0.18f) Color(0xFF0B0B0D) else Color.White

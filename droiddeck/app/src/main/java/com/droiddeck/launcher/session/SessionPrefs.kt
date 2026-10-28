@@ -1182,6 +1182,9 @@ object SessionPrefs {
         }.apply()
     }
 
+    fun gameDebugLogsEnabled(context: Context): Boolean =
+        prefs(context).getBoolean("gameDebugLogsEnabled", false)
+
     fun battleNetNoSteamSet(context: Context): Boolean = prefs(context).getBoolean("battleNetNoSteamSet", false)
     fun setBattleNetNoSteamSet(context: Context) { prefs(context).edit().putBoolean("battleNetNoSteamSet", true).apply() }
 

@@ -3165,4 +3165,11 @@
     <string name="screen_key_layout">Layout</string>
     <string name="screen_key_layout_export">Export</string>
     <string name="screen_key_layout_save">Save</string>
+    <string name="bnet_name" translatable="false">Battle.net</string>
+    <string name="bnet_dl_agent_error">Blizzard error %1$s</string>
+    <string name="bnet_dl_client_first">Open Battle.net and sign in once, then install its games here.</string>
+    <string name="bnet_dl_failed">Blizzard\'s downloader stopped: %1$s</string>
+    <string name="bnet_dl_queued">Waiting for the other Battle.net download…</string>
+    <string name="bnet_dl_starting">Starting Blizzard\'s downloader…</string>
+    <string name="bnet_dl_waiting">Waiting for Battle.net to close…</string>
 </resources>

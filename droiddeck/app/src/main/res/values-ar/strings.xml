@@ -3227,4 +3227,10 @@
     <string name="screen_key_layout">التخطيط</string>
     <string name="screen_key_layout_export">تصدير</string>
     <string name="screen_key_layout_save">حفظ</string>
+    <string name="bnet_dl_agent_error">خطأ Blizzard %1$s</string>
+    <string name="bnet_dl_client_first">افتح Battle.net وسجّل الدخول مرة واحدة، ثم ثبّت ألعابه من هنا.</string>
+    <string name="bnet_dl_failed">توقفت أداة التنزيل من Blizzard: %1$s</string>
+    <string name="bnet_dl_queued">في انتظار تنزيل Battle.net الآخر…</string>
+    <string name="bnet_dl_starting">جارٍ تشغيل أداة التنزيل من Blizzard…</string>
+    <string name="bnet_dl_waiting">في انتظار إغلاق Battle.net…</string>
 </resources>
