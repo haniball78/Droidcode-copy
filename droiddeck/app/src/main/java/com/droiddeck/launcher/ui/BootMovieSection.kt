@@ -676,7 +676,7 @@ private fun MoviePreview(url: String, modifier: Modifier = Modifier) {
 
 /** A dialog with one text box, for a search term or a page number; the Android keyboard comes up with it. */
 @Composable
-private fun TextEntryDialog(
+internal fun TextEntryDialog(
     title: String, initial: String, number: Boolean, confirm: String, onSubmit: (String) -> Unit, onDismiss: () -> Unit,
     id: String = "boot-movie-entry",
 ) {
