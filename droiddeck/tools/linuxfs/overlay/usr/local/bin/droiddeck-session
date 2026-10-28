@@ -16,7 +16,7 @@ if [ -n "${BL_LOG:-}" ] && [ -z "${BL_INSIDE:-}" ]; then
   fi
   exec > >({ dd of="$BL_LOG" oflag=append conv=notrunc iflag=count_bytes count="${BL_LOG_CAP:-268435456}" bs=65536 status=none; cat >/dev/null; }) 2>&1
   echo "== droiddeck-session $(date) mode=$mode $*"
-  echo "== uid=$(id -u) size=${BL_WIDTH:-?}x${BL_HEIGHT:-?} fps=${BL_FPS:-0} icd=${VK_ICD_FILENAMES:-none}"
+  echo "== uid=$(id -u) size=${BL_WIDTH:-?}x${BL_HEIGHT:-?} icd=${VK_ICD_FILENAMES:-none}"
   echo "== gamescope: $(gamescope --version 2>&1 | head -1) at $(command -v gamescope)"
   echo "== rootfs: $(cat /.version 2>/dev/null || echo unversioned)"
 fi
@@ -238,6 +238,8 @@ if [ -z "${BL_INSIDE:-}" ]; then
     args+=(-r "$BL_FPS")
   elif [ "${BL_REFRESH:-0}" -gt 0 ]; then
     args+=(-r "$BL_REFRESH")
+    # -r is the starting rate; gamescope follows the panel when it switches modes later.
+    export GAMESCOPE_NESTED_REFRESH_FOLLOWS_HOST=1
   fi
   [ "$mode" = steam ] && [ "${BL_STEAM_UI:-}" != desktop ] && args+=(-e)
   if [ "$mode" = steam ] && [ "${BL_XWAYLAND_COUNT:-2}" -gt 1 ]; then
@@ -256,6 +258,10 @@ if [ -z "${BL_INSIDE:-}" ]; then
     echo "== gamescope: mangoapp on ($(command -v mangoapp), config $MANGOHUD_CONFIGFILE)"
   fi
   export BL_INSIDE=1
+  # A fixed path: left to itself gamescope creates a new limiter state file on every start.
+  rm -f "${XDG_RUNTIME_DIR:-/tmp}"/gamescope-limiter-*
+  export GAMESCOPE_LIMITER_FILE="${XDG_RUNTIME_DIR:-/tmp}/droiddeck-gamescope-limiter"
+  rm -f "$GAMESCOPE_LIMITER_FILE"
   if [ "$mode" = steam ]; then
     if /usr/local/bin/droiddeck-pipewire start; then
       eval "$(/usr/local/bin/droiddeck-pipewire env)"
@@ -495,6 +501,8 @@ case $mode in
           elif [ "$_bl_since" -ge 0 ]; then
             [ "$_bl_packed" -lt 0 ] || bl_zram_send 0 "game closed, reading the client back"
             _bl_since=-1 _bl_packed=-1
+          else
+            _bl_since=-1
           fi
           nap 5
         done
