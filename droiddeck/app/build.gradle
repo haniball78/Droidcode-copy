@@ -361,37 +361,40 @@ dependencies {
 // names the piece it guards. If a future edit drops one of these markers, the build fails
 // with the check's name instead of a silent runtime regression.
 tasks.register('verifyTouchGuideGamescope') {
+    // appDir is captured at configuration time as a plain File: the previous version
+    // used helper closures that captured the Gradle script object, which the
+    // configuration cache refuses to serialize (build failed at this task).
+    def appDir = projectDir
     doLast {
         def failures = []
-        def check = { String name, String rel, String marker ->
-            def f = new File(projectDir, rel)
-            if (!f.isFile() || !f.text.contains(marker)) failures.add(name)
+        def checks = [
+            ['touch-gate', 'src/main/java/com/droiddeck/launcher/input/GestureTouchStreamGate.kt', 'class GestureTouchStreamGate'],
+            ['touch-pointer-subset', 'src/main/java/com/droiddeck/launcher/input/PointerSubset.kt', 'fun MotionEvent.pointerSubset'],
+            ['touch-steam-forwarding', 'src/main/java/com/droiddeck/launcher/input/SteamTouchControls.kt', 'onTouchMiss'],
+            ['touch-steam-forward-pointers', 'src/main/java/com/droiddeck/launcher/input/SteamTouchControls.kt', 'forwardPointers'],
+            ['touch-osc-forwarding', 'src/main/java/com/droiddeck/launcher/input/OnScreenControls.kt', 'onTouchMiss'],
+            ['touch-activity-wiring', 'src/main/java/com/droiddeck/launcher/SessionActivity.kt', 'gestureTouchStreamGate'],
+            ['touch-rptouch-fallback', '../tools/linuxfs/preload/rptouch.c', 'rt_xtst'],
+            ['guide-backqam-input', 'src/main/java/com/droiddeck/launcher/input/BackQamInput.kt', 'class BackQamInput'],
+            ['guide-padbridge-api', 'src/main/java/com/droiddeck/launcher/input/PadBridge.java', 'setBackQamPressed'],
+            ['guide-padbridge-can-hold-qam', 'src/main/java/com/droiddeck/launcher/input/PadBridge.java', 'canHoldQam'],
+            ['guide-padbridge-home-guide', 'src/main/java/com/droiddeck/launcher/input/PadBridge.java', 'setHomeGuidePressed'],
+            ['guide-move-home', 'src/main/java/com/droiddeck/launcher/input/PadBridge.java', 'KEYCODE_MOVE_HOME'],
+            ['guide-activity-wiring', 'src/main/java/com/droiddeck/launcher/SessionActivity.kt', 'backQamInput'],
+            ['gamescope-build-wsi', '../tools/gamescope/build-in-arch.sh', 'libVkLayer_FROG_gamescope_wsi_aarch64.so'],
+            ['gamescope-release-tag', '../tools/gamescope/release.env', 'gamescope-3.16.29-p18'],
+            ['gamescope-session-refresh', '../tools/linuxfs/overlay/usr/local/bin/droiddeck-session', 'GAMESCOPE_NESTED_REFRESH_FOLLOWS_HOST'],
+            ['gamescope-session-limiter', '../tools/linuxfs/overlay/usr/local/bin/droiddeck-session', 'GAMESCOPE_LIMITER_FILE']
+        ]
+        for (c in checks) {
+            def f = new File(appDir, c[1])
+            if (!f.isFile() || !f.text.contains(c[2])) failures.add(c[0])
         }
-        def checkFile = { String name, String rel ->
-            if (!new File(projectDir, rel).isFile()) failures.add(name)
-        }
-        check('touch-gate', 'src/main/java/com/droiddeck/launcher/input/GestureTouchStreamGate.kt', 'class GestureTouchStreamGate')
-        check('touch-pointer-subset', 'src/main/java/com/droiddeck/launcher/input/PointerSubset.kt', 'fun MotionEvent.pointerSubset')
-        check('touch-steam-forwarding', 'src/main/java/com/droiddeck/launcher/input/SteamTouchControls.kt', 'onTouchMiss')
-        check('touch-steam-forward-pointers', 'src/main/java/com/droiddeck/launcher/input/SteamTouchControls.kt', 'forwardPointers')
-        check('touch-osc-forwarding', 'src/main/java/com/droiddeck/launcher/input/OnScreenControls.kt', 'onTouchMiss')
-        check('touch-activity-wiring', 'src/main/java/com/droiddeck/launcher/SessionActivity.kt', 'gestureTouchStreamGate')
-        check('touch-rptouch-fallback', '../tools/linuxfs/preload/rptouch.c', 'rt_xtst')
-        check('guide-backqam-input', 'src/main/java/com/droiddeck/launcher/input/BackQamInput.kt', 'class BackQamInput')
-        check('guide-padbridge-api', 'src/main/java/com/droiddeck/launcher/input/PadBridge.java', 'setBackQamPressed')
-        check('guide-padbridge-can-hold-qam', 'src/main/java/com/droiddeck/launcher/input/PadBridge.java', 'canHoldQam')
-        check('guide-padbridge-home-guide', 'src/main/java/com/droiddeck/launcher/input/PadBridge.java', 'setHomeGuidePressed')
-        check('guide-move-home', 'src/main/java/com/droiddeck/launcher/input/PadBridge.java', 'KEYCODE_MOVE_HOME')
-        check('guide-activity-wiring', 'src/main/java/com/droiddeck/launcher/SessionActivity.kt', 'backQamInput')
-        check('gamescope-build-wsi', '../tools/gamescope/build-in-arch.sh', 'libVkLayer_FROG_gamescope_wsi_aarch64.so')
-        check('gamescope-release-tag', '../tools/gamescope/release.env', 'gamescope-3.16.29-p18')
-        check('gamescope-session-refresh', '../tools/linuxfs/overlay/usr/local/bin/droiddeck-session', 'GAMESCOPE_NESTED_REFRESH_FOLLOWS_HOST')
-        check('gamescope-session-limiter', '../tools/linuxfs/overlay/usr/local/bin/droiddeck-session', 'GAMESCOPE_LIMITER_FILE')
-        ['0117-wsi-cache-present-bypass-check.patch', '0118-wayland-signed-plane-positions.patch',
-         '0119-wsi-default-images-under-limiter.patch', '0120-nested-refresh-follows-host.patch',
-         '0121-override-content-skip-toplevel-walk.patch', '0122-wayland-wake-after-host-events.patch',
-         '0123-commit-fence-lifetime-upstream.patch', '0124-commit-done-at-import.patch'].each { p ->
-            checkFile("gamescope-patch-$p", "../tools/gamescope/patches/$p")
+        for (p in ['0117-wsi-cache-present-bypass-check.patch', '0118-wayland-signed-plane-positions.patch',
+                   '0119-wsi-default-images-under-limiter.patch', '0120-nested-refresh-follows-host.patch',
+                   '0121-override-content-skip-toplevel-walk.patch', '0122-wayland-wake-after-host-events.patch',
+                   '0123-commit-fence-lifetime-upstream.patch', '0124-commit-done-at-import.patch']) {
+            if (!new File(appDir, "../tools/gamescope/patches/$p").isFile()) failures.add("gamescope-patch-$p")
         }
         if (!failures.isEmpty()) throw new GradleException("FIX-CHECK FAILED: " + failures.join(', '))
         logger.lifecycle('FIX-CHECK: touch + guide + gamescope markers all present.')
