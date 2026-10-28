@@ -3324,4 +3324,8 @@
     <string name="stores_xbox_content_update">%1$s · Update / verify</string>
     <string name="integration_shortcuts_service">DroidDeck Home button</string>
     <string name="integration_shortcuts_service_description">Pass Home button presses to Steam Guide while a Steam session is focused and DroidDeck is the default Home app. Does not read screen content.</string>
+    <plurals name="apps_count">
+        <item quantity="one">%d app</item>
+        <item quantity="other">%d apps</item>
+    </plurals>
 </resources>
