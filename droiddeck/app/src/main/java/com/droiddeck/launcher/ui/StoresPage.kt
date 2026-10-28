@@ -99,8 +99,8 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.filled.ViewModule
-import com.droiddeck.launcher.stores.sortCatalogItems
-import com.droiddeck.launcher.stores.retainCatalogOrder
+import com.droiddeck.launcher.stores.sortGames
+import com.droiddeck.launcher.stores.retainOrder
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.material.icons.filled.PlayArrow
@@ -988,11 +988,11 @@ private fun Storefront(
         lookup
     }
     val sortedVisible = remember(candidates, tab, sort, lastPlayedFor, installedAtFor, sizeFor, installedKeys) {
-        if (tab == "library") installedFirst(sortCatalogItems(candidates, sort, lastPlayed = lastPlayedFor, installedAt = installedAtFor, size = sizeFor), installedKeys)
+        if (tab == "library") installedFirst(sortGames(candidates, sort, title = { it.title }, releaseDate = { it.releaseDate }, lastPlayed = lastPlayedFor, installedAt = installedAtFor, size = sizeFor), installedKeys)
         else candidates
     }
     val visible = remember(sizeSortPending, candidates, stableVisible, sortedVisible) {
-        if (sizeSortPending) retainCatalogOrder(candidates, stableVisible) else sortedVisible
+        if (sizeSortPending) retainOrder(candidates, stableVisible, key = { it.key }) else sortedVisible
     }
     val installedShown = if (tab == "library") visible.count { it.id in installedKeys } else 0
     val split = installedShown.takeIf { it in 1 until visible.size } ?: 0

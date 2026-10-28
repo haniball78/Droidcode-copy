@@ -3258,4 +3258,26 @@
     <string name="memory_hud_gpu">GPU %1$s GB</string>
     <string name="memory_hud_simple">RAM %1$s/%2$s GB · swap %3$s/%4$s GB</string>
     <string name="memory_hud_split">اللعبة %1$s · DroidDeck %2$s · Android %3$s GB</string>
+    <string name="bnet_open">فتح Battle.net</string>
+    <string name="bnet_update">تحديث</string>
+    <string name="game_install_access">الوصول</string>
+    <string name="game_install_access_owned">مملوكة</string>
+    <string name="game_install_date">مثبّت</string>
+    <string name="game_install_folder">مجلد</string>
+    <string name="game_install_location">الموقع</string>
+    <string name="game_install_played">آخر لعب</string>
+    <string name="game_install_size">الحجم على القرص</string>
+    <string name="game_install_version">الإصدار</string>
+    <string name="game_launch_shortcut">اختصار Steam</string>
+    <string name="game_stream">بث</string>
+    <string name="game_tab_about">حول</string>
+    <string name="game_tab_install">تثبيت</string>
+    <string name="game_tab_launch">التشغيل</string>
+    <string name="game_tab_saves_cloud">الحفظ والسحابة</string>
+    <string name="itch_collections">المجموعات</string>
+    <string name="library_add">إضافة إلى المكتبة</string>
+    <string name="library_filter_added">مُضافة</string>
+    <string name="library_in">في المكتبة</string>
+    <string name="library_remove">إزالة من المكتبة</string>
+    <string name="xbox_filter_cloud">سحابية</string>
 </resources>
