@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.ActivityInfo
 import androidx.annotation.StringRes
 import com.droiddeck.launcher.R
+import com.droiddeck.launcher.core.CpuAllocationDefaults
 import com.droiddeck.launcher.core.GameEnvironment
 import com.droiddeck.launcher.core.TextureFiltering
 import com.droiddeck.launcher.gpu.Cardboard
@@ -381,19 +382,30 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("wifiDiscoveryAsked", true).apply()
     }
 
-    fun clientCpusOverride(context: Context): Boolean = prefs(context).getBoolean("clientCpusOverride", false)
+    internal data class CoreAllocation(val clientOverride: Boolean, val clientCpus: String, val gameCpus: String)
+
+    internal fun coreAllocation(context: Context, defaults: CpuAllocationDefaults.Allocation? = CpuAllocationDefaults.device): CoreAllocation {
+        val saved = prefs(context)
+        return CoreAllocation(
+            saved.getBoolean("clientCpusOverride", defaults != null && !saved.contains("clientCpus")),
+            saved.getString("clientCpus", defaults?.client.orEmpty()).orEmpty(),
+            saved.getString("gameCpus", defaults?.game.orEmpty()).orEmpty(),
+        )
+    }
+
+    fun clientCpusOverride(context: Context): Boolean = coreAllocation(context).clientOverride
 
     fun setClientCpusOverride(context: Context, on: Boolean) {
         prefs(context).edit().putBoolean("clientCpusOverride", on).apply()
     }
 
-    fun clientCpus(context: Context): String = prefs(context).getString("clientCpus", "").orEmpty()
+    fun clientCpus(context: Context): String = coreAllocation(context).clientCpus
 
     fun setClientCpus(context: Context, list: String) {
         prefs(context).edit().putString("clientCpus", list).apply()
     }
 
-    fun gameCpus(context: Context): String = prefs(context).getString("gameCpus", "").orEmpty()
+    fun gameCpus(context: Context): String = coreAllocation(context).gameCpus
 
     fun setGameCpus(context: Context, list: String) {
         prefs(context).edit().putString("gameCpus", list).apply()
